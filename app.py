@@ -42,7 +42,7 @@ def init_gspread():
     return client.open_by_url(url)
 
 # ---------------------------------------------------------
-# 2. 마스터 데이터 정의 (업데이트 적용)
+# 2. 마스터 데이터 정의
 # ---------------------------------------------------------
 ITEMS = [
     "카이피라", "프릴아이스", "버터헤드", "레드오크", 
@@ -50,14 +50,13 @@ ITEMS = [
     "양상추", "양배추", "적채", "당근"
 ]
 
-# '넥스토팜' 추가 완료
-INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
+INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
 # ---------------------------------------------------------
 # 3. 메인 화면 구성
 # ---------------------------------------------------------
-st.title("🥬 농산물 입출고 & 수불 관리 시스템")
+st.title("🥬 농산물 입출고 & 입고 리스트 관리")
 
 try:
     doc = init_gspread()
@@ -66,15 +65,16 @@ except Exception as e:
     st.error(f"구글 시트 연동 실패: {e}")
     st.stop()
 
+# 탭 구조를 [입고 입력] / [출고 입력] / [기간별 입고 리스트] / [전체 내역] 으로 분리
 tab1, tab2, tab3, tab4 = st.tabs([
     "📥 입고 등록", 
     "📤 출고 등록", 
     "📅 기간별 입고 리스트", 
-    "📊 전체 내역 조회 & 출력"
+    "📊 전체 내역 조회"
 ])
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록
+# TAB 1: 입고 전용 입력 폼
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 입고 데이터 등록")
@@ -116,7 +116,7 @@ with tab1:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 2: 출고 등록
+# TAB 2: 출고 전용 입력 폼 (단가/금액 없음)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 출고 데이터 등록")
@@ -142,8 +142,8 @@ with tab2:
                 item,
                 vendor,
                 weight,
-                "-",
-                "-",
+                "-",  # 단가 없음
+                "-",  # 총금액 없음
                 note,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ]
@@ -162,16 +162,17 @@ with tab3:
     
     col_date1, col_date2, col_vendor = st.columns(3)
     with col_date1:
-        start_date_in = st.date_input("시작일", value=date(datetime.now().year, datetime.now().month, 1), key="in_start")
+        start_date = st.date_input("시작일", value=date(datetime.now().year, datetime.now().month, 1))
     with col_date2:
-        end_date_in = st.date_input("종료일", value=datetime.today(), key="in_end")
+        end_date = st.date_input("종료일", value=datetime.today())
     with col_vendor:
-        selected_vendor_in = st.selectbox("입고 거래처 필터", ["전체"] + INBOUND_VENDORS, key="in_vendor_filter")
+        selected_vendor = st.selectbox("입고 거래처 필터", ["전체"] + INBOUND_VENDORS)
 
     try:
         data = sheet.get_all_records()
         if data:
             df = pd.DataFrame(data)
+            
             inbound_df = df[df["구분"] == "입고"].copy()
             
             if not inbound_df.empty:
@@ -180,10 +181,10 @@ with tab3:
                 inbound_df["단가(원)"] = pd.to_numeric(inbound_df["단가(원)"], errors='coerce').fillna(0)
                 inbound_df["총금액(원)"] = pd.to_numeric(inbound_df["총금액(원)"], errors='coerce').fillna(0)
                 
-                filtered_df = inbound_df[(inbound_df["날짜"] >= start_date_in) & (inbound_df["날짜"] <= end_date_in)]
+                filtered_df = inbound_df[(inbound_df["날짜"] >= start_date) & (inbound_df["날짜"] <= end_date)]
                 
-                if selected_vendor_in != "전체":
-                    filtered_df = filtered_df[filtered_df["거래처"] == selected_vendor_in]
+                if selected_vendor != "전체":
+                    filtered_df = filtered_df[filtered_df["거래처"] == selected_vendor]
                     
                 if not filtered_df.empty:
                     st.markdown("---")
@@ -204,9 +205,8 @@ with tab3:
                     st.download_button(
                         label="📥 선택한 입고 리스트 엑셀 다운로드",
                         data=excel_buffer.getvalue(),
-                        file_name=f"입고리스트_{start_date_in}_{end_date_in}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="btn_dl_inbound"
+                        file_name=f"입고리스트_{start_date}_{end_date}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                 else:
                     st.info("선택한 조건에 해당하는 입고 데이터가 없습니다.")
@@ -219,86 +219,16 @@ with tab3:
         st.error(f"데이터 조회 중 오류 발생: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: 전체 내역 조회 & 기간 검색 & 출력 & 엑셀 다운로드
+# TAB 4: 전체 내역 조회
 # ---------------------------------------------------------
 with tab4:
-    st.subheader("📊 전체 입출고 내역 검색 및 출력")
-    
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 0.8])
-    with c1:
-        start_date_all = st.date_input("시작일", value=date(datetime.now().year, datetime.now().month, 1), key="all_start")
-    with c2:
-        end_date_all = st.date_input("종료일", value=datetime.today(), key="all_end")
-    with c3:
-        type_filter = st.selectbox("구분 필터", ["전체", "입고", "출고"], key="all_type_filter")
-    with c4:
-        st.write(" ")
-        if st.button("🔄 새로고침", use_container_width=True):
-            st.cache_data.clear()
-
+    st.subheader("전체 입출고 데이터")
+    if st.button("🔄 새로고침"):
+        st.cache_data.clear()
+        
     try:
         data = sheet.get_all_records()
         if data:
-            df_all = pd.DataFrame(data)
-            
-            df_all["날짜_dt"] = pd.to_datetime(df_all["날짜"]).dt.date
-            
-            filtered_all = df_all[(df_all["날짜_dt"] >= start_date_all) & (df_all["날짜_dt"] <= end_date_all)].copy()
-            
-            if type_filter != "전체":
-                filtered_all = filtered_all[filtered_all["구분"] == type_filter]
-                
-            filtered_all = filtered_all.sort_values(by="날짜_dt", ascending=False)
-
-            if not filtered_all.empty:
-                weight_series = pd.to_numeric(filtered_all["중량(kg)"], errors='coerce').fillna(0)
-                
-                st.markdown("---")
-                m1, m2 = st.columns(2)
-                m1.metric("조회 건수", f"{len(filtered_all):,} 건")
-                m2.metric("총 중량 합계", f"{weight_series.sum():,.1f} kg")
-                st.markdown("---")
-
-                cols_to_show = [c for c in filtered_all.columns if c != "날짜_dt"]
-                show_df = filtered_all[cols_to_show]
-
-                st.dataframe(show_df, use_container_width=True)
-
-                b_col1, b_col2 = st.columns(2)
-                
-                with b_col1:
-                    excel_buffer_all = io.BytesIO()
-                    with pd.ExcelWriter(excel_buffer_all, engine='openpyxl') as writer:
-                        show_df.to_excel(writer, index=False, sheet_name='입출고내역')
-                    
-                    st.download_button(
-                        label="📥 검색 결과 엑셀 다운로드",
-                        data=excel_buffer_all.getvalue(),
-                        file_name=f"입출고내역_{start_date_all}_{end_date_all}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        key="btn_dl_all"
-                    )
-
-                with b_col2:
-                    st.components.v1.html("""
-                        <button onclick="window.print()" style="
-                            width: 100%;
-                            height: 38px;
-                            background-color: #FF4B4B;
-                            color: white;
-                            border: none;
-                            border-radius: 8px;
-                            font-size: 14px;
-                            font-weight: bold;
-                            cursor: pointer;
-                        ">🖨️ 인쇄 / PDF 저장</button>
-                    """, height=45)
-
-            else:
-                st.info("선택한 기간 및 조건에 해당하는 내역이 없습니다.")
-        else:
-            st.info("등록된 데이터가 없습니다.")
-
+            st.dataframe(pd.DataFrame(data), use_container_width=True)
     except Exception as e:
-        st.error(f"데이터 조회 오류: {e}")
+        st.error(f"조회 실패: {e}")
