@@ -58,6 +58,14 @@ ITEMS = [
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
+# 세션 상태 초기화 (다중 행 제어용)
+if "in_rows" not in st.session_state:
+    st.session_state.in_rows = 4  # 기본 4개 품목 행
+if "out_rows" not in st.session_state:
+    st.session_state.out_rows = 4 # 기본 4개 품목 행
+if "loss_rows" not in st.session_state:
+    st.session_state.loss_rows = 1
+
 # ---------------------------------------------------------
 # 3. 메인 화면 구성 및 시트 로드
 # ---------------------------------------------------------
@@ -71,8 +79,8 @@ except Exception as e:
     st.stop()
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📥 입고 등록", 
-    "📤 출고(사용) 등록", 
+    "📥 입고 등록 (다중)", 
+    "📤 출고(사용) 등록 (다중)", 
     "🚮 로스 등록", 
     "📅 거래처별 입고 정산",
     "📊 수불부 (재고 정산)"
@@ -91,96 +99,159 @@ def get_latest_stock(sheet_obj, item_name):
     return pd.to_numeric(last_stock, errors='coerce') or 0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록
+# TAB 1: 입고 등록 (같은 날 동시 4개 이상 다중 입력)
 # ---------------------------------------------------------
 with tab1:
-    st.subheader("📥 원재료 입고 등록")
+    st.subheader("📥 원재료 입고 일괄 등록")
     
-    with st.form("inbound_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+    col_date, col_vendor, col_btn = st.columns([1.5, 1.5, 1])
+    with col_date:
+        record_date = st.date_input("입고일자", value=datetime.today(), key="in_multi_date")
+    with col_vendor:
+        vendor = st.selectbox("입고 거래처", INBOUND_VENDORS, key="in_multi_vendor")
+    with col_btn:
+        st.write(" ")
+        if st.button("➕ 품목 행 추가", use_container_width=True):
+            st.session_state.in_rows += 1
+
+    st.markdown("---")
+    
+    # 동시 입고 입력 폼
+    with st.form("multi_inbound_form", clear_on_submit=True):
+        in_inputs = []
         
-        with col1:
-            record_date = st.date_input("입고일자", value=datetime.today())
-            vendor = st.selectbox("입고 거래처", INBOUND_VENDORS)
-            item = st.selectbox("원료명", ITEMS)
+        # 헤더 표시
+        h1, h2, h3, h4 = st.columns([2, 1.5, 1.5, 2])
+        h1.caption("**원료명**")
+        h2.caption("**입고 중량 (kg)**")
+        h3.caption("**단가 (원/kg)**")
+        h4.caption("**비고**")
 
-        with col2:
-            weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f")
-            unit_price = st.number_input("단가 (원/kg)", min_value=0, step=100)
-            
-            total_price = int(weight * unit_price)
-            st.info(f"💡 **입고 총 금액 (면세):** `{total_price:,} 원`")
-            note = st.text_input("비고", placeholder="특이사항 메모")
+        for i in range(st.session_state.in_rows):
+            c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 2])
+            with c1:
+                item = st.selectbox(f"품목 #{i+1}", ITEMS, index=i % len(ITEMS), key=f"in_item_{i}", label_visibility="collapsed")
+            with c2:
+                weight = st.number_input(f"중량 #{i+1}", min_value=0.0, step=0.5, format="%.1f", key=f"in_weight_{i}", label_visibility="collapsed")
+            with c3:
+                price = st.number_input(f"단가 #{i+1}", min_value=0, step=100, key=f"in_price_{i}", label_visibility="collapsed")
+            with c4:
+                note = st.text_input(f"비고 #{i+1}", placeholder="특이사항 메모", key=f"in_note_{i}", label_visibility="collapsed")
+                
+            in_inputs.append({"item": item, "weight": weight, "price": price, "note": note})
 
-        submitted = st.form_submit_button("입고 저장하기", use_container_width=True)
+        submitted = st.form_submit_button("📥 입력한 모든 입고 항목 일괄 저장하기", use_container_width=True)
 
         if submitted:
+            saved_count = 0
             try:
-                prev_stock = get_latest_stock(sheet, item)
-                day_stock = prev_stock + weight
-                
-                row_data = [
-                    str(record_date),
-                    "야채 원재료",
-                    item,
-                    prev_stock,
-                    weight,
-                    0,
-                    0,
-                    day_stock,
-                    vendor,
-                    unit_price,
-                    total_price,
-                    note
-                ]
-                
-                sheet.append_row(row_data)
-                st.success(f"✅ [입고 완료] {item} {weight}kg ({vendor}) / 단가: {unit_price:,}원 ➡️ 총 {total_price:,}원")
+                for row in in_inputs:
+                    w = row["weight"]
+                    p = row["price"]
+                    if w > 0: # 중량이 0보다 큰 건만 저장
+                        itm = row["item"]
+                        nt = row["note"]
+                        tot = int(w * p)
+                        
+                        prev_stock = get_latest_stock(sheet, itm)
+                        day_stock = prev_stock + w
+                        
+                        row_data = [
+                            str(record_date),
+                            "야채 원재료",
+                            itm,
+                            prev_stock,
+                            w,
+                            0,
+                            0,
+                            day_stock,
+                            vendor,
+                            p,
+                            tot,
+                            nt
+                        ]
+                        sheet.append_row(row_data)
+                        saved_count += 1
+
+                if saved_count > 0:
+                    st.success(f"✅ 총 {saved_count}개 입고 품목 저장 완료!")
+                else:
+                    st.warning("⚠️ 입고 중량이 0kg 초과인 항목이 없습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록
+# TAB 2: 출고(사용) 등록 (같은 날 동시 4개 이상 다중 입력)
 # ---------------------------------------------------------
 with tab2:
-    st.subheader("📤 원재료 출고(사용) 등록")
+    st.subheader("📤 원재료 출고(사용) 일괄 등록")
     
-    with st.form("outbound_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
+    col_date2, col_vendor2, col_btn2 = st.columns([1.5, 1.5, 1])
+    with col_date2:
+        record_date_out = st.date_input("출고일자", value=datetime.today(), key="out_multi_date")
+    with col_vendor2:
+        vendor_out = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_multi_vendor")
+    with col_btn2:
+        st.write(" ")
+        if st.button("➕ 출고 행 추가", use_container_width=True):
+            st.session_state.out_rows += 1
+
+    st.markdown("---")
+    
+    with st.form("multi_outbound_form", clear_on_submit=True):
+        out_inputs = []
         
-        with col1:
-            record_date = st.date_input("출고일자", value=datetime.today(), key="out_date")
-            vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_vendor")
-            item = st.selectbox("원료명", ITEMS, key="out_item")
+        h1, h2, h3 = st.columns([2, 2, 3])
+        h1.caption("**원료명**")
+        h2.caption("**출고(사용) 중량 (kg)**")
+        h3.caption("**비고**")
 
-        with col2:
-            usage_weight = st.number_input("출고(사용) 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="out_weight")
-            note = st.text_input("비고", placeholder="특이사항 메모", key="out_note")
+        for i in range(st.session_state.out_rows):
+            c1, c2, c3 = st.columns([2, 2, 3])
+            with c1:
+                item = st.selectbox(f"출고품목 #{i+1}", ITEMS, index=i % len(ITEMS), key=f"out_item_{i}", label_visibility="collapsed")
+            with c2:
+                weight = st.number_input(f"출고중량 #{i+1}", min_value=0.0, step=0.5, format="%.1f", key=f"out_weight_{i}", label_visibility="collapsed")
+            with c3:
+                note = st.text_input(f"출고비고 #{i+1}", placeholder="특이사항 메모", key=f"out_note_{i}", label_visibility="collapsed")
+                
+            out_inputs.append({"item": item, "weight": weight, "note": note})
 
-        submitted = st.form_submit_button("출고 저장하기", use_container_width=True)
+        submitted_out = st.form_submit_button("📤 입력한 모든 출고 항목 일괄 저장하기", use_container_width=True)
 
-        if submitted:
+        if submitted_out:
+            saved_count = 0
             try:
-                prev_stock = get_latest_stock(sheet, item)
-                day_stock = prev_stock - usage_weight
-                
-                row_data = [
-                    str(record_date),
-                    "야채 원재료",
-                    item,
-                    prev_stock,
-                    0,
-                    usage_weight,
-                    0,
-                    day_stock,
-                    vendor,
-                    "-",
-                    "-",
-                    note
-                ]
-                
-                sheet.append_row(row_data)
-                st.success(f"✅ [출고 완료] {item} {usage_weight}kg ({vendor}) / 전일재고: {prev_stock}kg ➡️ 당일재고: {day_stock}kg")
+                for row in out_inputs:
+                    w = row["weight"]
+                    if w > 0:
+                        itm = row["item"]
+                        nt = row["note"]
+                        
+                        prev_stock = get_latest_stock(sheet, itm)
+                        day_stock = prev_stock - w
+                        
+                        row_data = [
+                            str(record_date_out),
+                            "야채 원재료",
+                            itm,
+                            prev_stock,
+                            0,
+                            w,
+                            0,
+                            day_stock,
+                            vendor_out,
+                            "-",
+                            "-",
+                            nt
+                        ]
+                        sheet.append_row(row_data)
+                        saved_count += 1
+
+                if saved_count > 0:
+                    st.success(f"✅ 총 {saved_count}개 출고 품목 저장 완료!")
+                else:
+                    st.warning("⚠️ 출고 중량이 0kg 초과인 항목이 없습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
@@ -229,7 +300,7 @@ with tab3:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: 거래처별 입고 정산 (인쇄 기능 추가)
+# TAB 4: 거래처별 입고 정산 (인쇄 기능 포함)
 # ---------------------------------------------------------
 with tab4:
     st.subheader("📅 거래처별 입고 정산 내역")
@@ -326,7 +397,6 @@ with tab4:
                             use_container_width=True
                         )
 
-                    # 하단 버튼 (엑셀 다운로드 & 바로 인쇄)
                     b1, b2 = st.columns(2)
                     with b1:
                         excel_vendor = io.BytesIO()
@@ -364,7 +434,7 @@ with tab4:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 수불부 (재고 정산 & 인쇄)
+# TAB 5: 수불부 (날짜 오름차순 정렬)
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📊 야채 원재료 수불부 (재고 정산)")
