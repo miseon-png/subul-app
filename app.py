@@ -5,7 +5,7 @@ from datetime import datetime, date
 import pandas as pd
 import io
 
-st.set_page_config(page_title="농산물 수불 관리 시스템", layout="wide")
+st.set_page_config(page_title="야채 원재료 수불 관리 시스템", layout="wide")
 
 # ---------------------------------------------------------
 # 1. 구글 시트 연동
@@ -41,15 +41,13 @@ def init_gspread():
     url = st.secrets["sheets"]["spreadsheet_url"]
     return client.open_by_url(url)
 
-# ---------------------------------------------------------
-# 2. 날짜 안전 변환 함수
-# ---------------------------------------------------------
+# 안전한 날짜 변환 보조 함수
 def safe_parse_date(series):
     parsed = pd.to_datetime(series, errors='coerce', format='mixed')
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 3. 마스터 데이터 정의
+# 2. 마스터 데이터 정의
 # ---------------------------------------------------------
 ITEMS = [
     "카이피라", "프릴아이스", "버터헤드", "레드오크", 
@@ -61,221 +59,171 @@ INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "�
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
 # ---------------------------------------------------------
-# 4. 메인 화면 구성
+# 3. 메인 화면 구성 및 시트 로드
 # ---------------------------------------------------------
-st.title("🥬 농산물 입출고 & 수불부 관리 시스템")
+st.title("🥬 야채 원재료 수불 관리 시스템")
 
 try:
     doc = init_gspread()
-    sheet = doc.sheet1
+    # 새 링크의 기본 시트 이름인 '시트1'을 불러옵니다.
+    sheet = doc.worksheet("시트1")
 except Exception as e:
-    st.error(f"구글 시트 연동 실패: {e}")
+    st.error(f"구글 시트 로드 실패: {e}")
     st.stop()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📥 입고 등록", 
-    "📤 출고 등록", 
-    "🚮 로스 등록",
-    "📅 기간별 입고 리스트", 
-    "📊 수불부 (기간 정산)"
+    "📤 출고(사용) 등록", 
+    "🚮 로스 등록", 
+    "📊 수불부 (재고 정산)"
 ])
+
+# 해당 품목의 최신 당일재고(전일재고용) 가져오기 보조 함수
+def get_latest_stock(sheet_obj, item_name):
+    all_data = sheet_obj.get_all_records()
+    if not all_data:
+        return 0
+    df_all = pd.DataFrame(all_data)
+    item_df = df_all[df_all["원료명"] == item_name]
+    if item_df.empty:
+        return 0
+    # 가장 마지막에 작성된 행의 '당일재고' 값 가져오기
+    last_stock = item_df.iloc[-1].get("당일재고", 0)
+    return pd.to_numeric(last_stock, errors='coerce') or 0
 
 # ---------------------------------------------------------
 # TAB 1: 입고 등록
 # ---------------------------------------------------------
 with tab1:
-    st.subheader("📥 입고 데이터 등록")
+    st.subheader("📥 원재료 입고 등록")
     
     with st.form("inbound_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            record_date = st.date_input("입고 날짜", value=datetime.today(), key="in_date")
-            item = st.selectbox("품목명", ITEMS, key="in_item")
-            vendor = st.selectbox("입고 거래처", INBOUND_VENDORS, key="in_vendor")
+            record_date = st.date_input("입고일자", value=datetime.today())
+            vendor = st.selectbox("입고 거래처", INBOUND_VENDORS)
+            item = st.selectbox("원료명", ITEMS)
 
         with col2:
-            weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="in_weight")
-            unit_price = st.number_input("입고 단가 (원/kg)", min_value=0, step=100, key="in_price")
-            total_price = int(weight * unit_price)
-            st.info(f"💡 **입고 총 금액:** `{total_price:,} 원`")
-            note = st.text_input("비고", placeholder="특이사항 메모", key="in_note")
+            weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f")
+            note = st.text_input("비고", placeholder="특이사항 메모")
 
         submitted = st.form_submit_button("입고 저장하기", use_container_width=True)
 
         if submitted:
-            row_data = [
-                str(record_date),
-                "입고",
-                item,
-                vendor,
-                weight,
-                unit_price,
-                total_price,
-                note,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ]
-            
             try:
+                prev_stock = get_latest_stock(sheet, item)
+                day_stock = prev_stock + weight # 당일재고 = 전일재고 + 당일입고
+                
+                # 시트1 구조: 일자, 구분, 원료명, 전일재고, 당일입고, 당일사용, 로스, 당일재고
+                row_data = [
+                    str(record_date),
+                    "야채 원재료",
+                    item,
+                    prev_stock,
+                    weight,
+                    0,
+                    0,
+                    day_stock
+                ]
+                
                 sheet.append_row(row_data)
-                st.success(f"✅ [입고] {item} {weight}kg ({vendor}) / {total_price:,}원 저장 완료!")
+                st.success(f"✅ [입고 완료] {item} {weight}kg ({vendor}) / 전일재고: {prev_stock}kg ➡️ 당일재고: {day_stock}kg")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 2: 출고 등록
+# TAB 2: 출고(사용) 등록
 # ---------------------------------------------------------
 with tab2:
-    st.subheader("📤 출고 데이터 등록")
+    st.subheader("📤 원재료 출고(사용) 등록")
     
     with st.form("outbound_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            record_date = st.date_input("출고 날짜", value=datetime.today(), key="out_date")
-            item = st.selectbox("품목명", ITEMS, key="out_item")
+            record_date = st.date_input("출고일자", value=datetime.today(), key="out_date")
+            vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_vendor")
+            item = st.selectbox("원료명", ITEMS, key="out_item")
 
         with col2:
-            vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_vendor")
-            weight = st.number_input("출고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="out_weight")
+            usage_weight = st.number_input("출고(사용) 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="out_weight")
             note = st.text_input("비고", placeholder="특이사항 메모", key="out_note")
 
         submitted = st.form_submit_button("출고 저장하기", use_container_width=True)
 
         if submitted:
-            row_data = [
-                str(record_date),
-                "출고",
-                item,
-                vendor,
-                weight,
-                "-",
-                "-",
-                note,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ]
-            
             try:
+                prev_stock = get_latest_stock(sheet, item)
+                day_stock = prev_stock - usage_weight # 당일재고 = 전일재고 - 당일사용
+                
+                row_data = [
+                    str(record_date),
+                    "야채 원재료",
+                    item,
+                    prev_stock,
+                    0,
+                    usage_weight,
+                    0,
+                    day_stock
+                ]
+                
                 sheet.append_row(row_data)
-                st.success(f"✅ [출고] {item} {weight}kg ({vendor}) 저장 완료!")
+                st.success(f"✅ [출고 완료] {item} {usage_weight}kg ({vendor}) / 전일재고: {prev_stock}kg ➡️ 당일재고: {day_stock}kg")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 3: 로스(손실) 등록
+# TAB 3: 로스 등록
 # ---------------------------------------------------------
 with tab3:
-    st.subheader("🚮 로스(손실) 데이터 등록")
+    st.subheader("🚮 로스(폐기/손실) 등록")
     
     with st.form("loss_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            record_date = st.date_input("로스 발생 날짜", value=datetime.today(), key="loss_date")
-            item = st.selectbox("품목명", ITEMS, key="loss_item")
+            record_date = st.date_input("발생일자", value=datetime.today(), key="loss_date")
+            item = st.selectbox("원료명", ITEMS, key="loss_item")
 
         with col2:
-            weight = st.number_input("로스 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="loss_weight")
-            note = st.text_input("사유 및 메모", placeholder="예: 폐기, 부패 등", key="loss_note")
+            loss_weight = st.number_input("로스 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="loss_weight")
+            note = st.text_input("사유", placeholder="예: 부패, 훼손 등", key="loss_note")
 
         submitted = st.form_submit_button("로스 저장하기", use_container_width=True)
 
         if submitted:
-            row_data = [
-                str(record_date),
-                "로스",
-                item,
-                "자체폐기",
-                weight,
-                "-",
-                "-",
-                note,
-                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            ]
-            
             try:
+                prev_stock = get_latest_stock(sheet, item)
+                day_stock = prev_stock - loss_weight # 당일재고 = 전일재고 - 로스
+                
+                row_data = [
+                    str(record_date),
+                    "야채 원재료",
+                    item,
+                    prev_stock,
+                    0,
+                    0,
+                    loss_weight,
+                    day_stock
+                ]
+                
                 sheet.append_row(row_data)
-                st.success(f"✅ [로스] {item} {weight}kg 저장 완료!")
+                st.success(f"✅ [로스 완료] {item} {loss_weight}kg / 전일재고: {prev_stock}kg ➡️ 당일재고: {day_stock}kg")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: 기간별 입고 리스트 (정산용)
+# TAB 4: 수불부 (기간별 재고 정산)
 # ---------------------------------------------------------
 with tab4:
-    st.subheader("📅 기간별 입고 리스트 & 정산")
-    
-    col_date1, col_date2, col_vendor = st.columns(3)
-    with col_date1:
-        start_date = st.date_input("시작일", value=date(2024, 1, 1), key="tab4_start")
-    with col_date2:
-        end_date = st.date_input("종료일", value=datetime.today(), key="tab4_end")
-    with col_vendor:
-        selected_vendor = st.selectbox("입고 거래처 필터", ["전체"] + INBOUND_VENDORS, key="tab4_vendor")
-
-    try:
-        data = sheet.get_all_records()
-        if data:
-            df = pd.DataFrame(data)
-            inbound_df = df[df["구분"] == "입고"].copy()
-            
-            if not inbound_df.empty:
-                inbound_df["날짜_parsed"] = safe_parse_date(inbound_df["날짜"])
-                inbound_df["중량(kg)"] = pd.to_numeric(inbound_df["중량(kg)"], errors='coerce').fillna(0)
-                inbound_df["단가(원)"] = pd.to_numeric(inbound_df["단가(원)"], errors='coerce').fillna(0)
-                inbound_df["총금액(원)"] = pd.to_numeric(inbound_df["총금액(원)"], errors='coerce').fillna(0)
-                
-                filtered_df = inbound_df[
-                    (inbound_df["날짜_parsed"].notnull()) & 
-                    (inbound_df["날짜_parsed"] >= start_date) & 
-                    (inbound_df["날짜_parsed"] <= end_date)
-                ]
-                
-                if selected_vendor != "전체":
-                    filtered_df = filtered_df[filtered_df["거래처"] == selected_vendor]
-                    
-                if not filtered_df.empty:
-                    st.markdown("---")
-                    m1, m2, m3 = st.columns(3)
-                    m1.metric("총 입고 건수", f"{len(filtered_df):,} 건")
-                    m2.metric("총 입고 중량", f"{filtered_df['중량(kg)'].sum():,.1f} kg")
-                    m3.metric("총 입고 금액", f"{filtered_df['총금액(원)'].sum():,} 원")
-                    st.markdown("---")
-
-                    display_cols = ["날짜", "거래처", "품목", "중량(kg)", "단가(원)", "총금액(원)", "비고"]
-                    out_df = filtered_df[display_cols].sort_values(by="날짜", ascending=False)
-                    st.dataframe(out_df, use_container_width=True)
-
-                    excel_buffer = io.BytesIO()
-                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        out_df.to_excel(writer, index=False, sheet_name='입고리스트')
-                    
-                    st.download_button(
-                        label="📥 선택한 입고 리스트 엑셀 다운로드",
-                        data=excel_buffer.getvalue(),
-                        file_name=f"입고리스트_{start_date}_{end_date}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="dl_tab4"
-                    )
-                else:
-                    st.info("선택한 조건에 해당하는 입고 데이터가 없습니다.")
-            else:
-                st.info("입고 내역이 존재하지 않습니다.")
-        else:
-            st.info("등록된 데이터가 없습니다.")
-            
-    except Exception as e:
-        st.error(f"데이터 조회 중 오류 발생: {e}")
-
-# ---------------------------------------------------------
-# TAB 5: 수불부 (전일재고 + 입고 - 출고 - 로스 = 당일재고)
-# ---------------------------------------------------------
-with tab5:
-    st.subheader("📊 농산물 수불부 (재고 정산)")
+    st.subheader("📊 야채 원재료 수불부 (기간 정산)")
     
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 0.8])
     with ctrl1:
-        s_date = st.date_input("정산 시작일", value=date(2024, 1, 1), key="subul_sdate")
+        # 과거 시트 데이터(2024년 7월~) 조회를 고려해 2024-07-01 기본 세팅
+        s_date = st.date_input("정산 시작일", value=date(2024, 7, 1), key="subul_sdate")
     with ctrl2:
         e_date = st.date_input("정산 종료일", value=datetime.today(), key="subul_edate")
     with ctrl3:
@@ -284,82 +232,77 @@ with tab5:
             st.cache_data.clear()
 
     try:
-        data = sheet.get_all_records()
-        if data:
-            df = pd.DataFrame(data)
-            df["날짜_dt"] = safe_parse_date(df["날짜"])
-            df["중량(kg)"] = pd.to_numeric(df["중량(kg)"], errors='coerce').fillna(0)
+        all_records = sheet.get_all_records()
+        if all_records:
+            df = pd.DataFrame(all_records)
+            df["일자_parsed"] = safe_parse_date(df["일자"])
             
-            # 1. 시작일 이전 데이터 (전일 재고 산출용)
-            prior_df = df[(df["날짜_dt"].notnull()) & (df["날짜_dt"] < s_date)]
+            for col in ["전일재고", "당일입고", "당일사용", "로스", "당일재고"]:
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+            # 1. 시작일 이전 데이터 (전일재고 추출용)
+            prior_df = df[(df["일자_parsed"].notnull()) & (df["일자_parsed"] < s_date)]
             
-            # 2. 지정 기간 내 데이터 (기간 입고/출고/로스 산출용)
+            # 2. 지정 기간 내 데이터 (입고/사용/로스 합산용)
             period_df = df[
-                (df["날짜_dt"].notnull()) & 
-                (df["날짜_dt"] >= s_date) & 
-                (df["날짜_dt"] <= e_date)
+                (df["일자_parsed"].notnull()) & 
+                (df["일자_parsed"] >= s_date) & 
+                (df["일자_parsed"] <= e_date)
             ]
 
-            # 품목별 수불 집계 테이블 생성
-            subul_list = []
+            summary_rows = []
             
             for item in ITEMS:
-                # --- 전일 재고 계산 ---
-                prior_item = prior_df[prior_df["품목"] == item]
-                p_in = prior_item[prior_item["구분"] == "입고"]["중량(kg)"].sum()
-                p_out = prior_item[prior_item["구분"] == "출고"]["중량(kg)"].sum()
-                p_loss = prior_item[prior_item["구분"] == "로스"]["중량(kg)"].sum()
-                prev_stock = p_in - p_out - p_loss # 전일재고 수식
-
-                # --- 기간 내 수량 계산 ---
-                period_item = period_df[period_df["품목"] == item]
-                curr_in = period_item[period_item["구분"] == "입고"]["중량(kg)"].sum()
-                curr_out = period_item[period_item["구분"] == "출고"]["중량(kg)"].sum()
-                curr_loss = period_item[period_item["구분"] == "로스"]["중량(kg)"].sum()
-
-                # --- 당일 재고 (전일재고 + 입고 - 출고 - 로스) ---
-                curr_stock = prev_stock + curr_in - curr_out - curr_loss
-
-                # 한 번이라도 거래가 있었거나 재고가 있는 항목만 추가
-                if prev_stock != 0 or curr_in != 0 or curr_out != 0 or curr_loss != 0 or curr_stock != 0:
-                    subul_list.append({
-                        "품목명": item,
+                # 전일 재고: 시작일 이전 해당 품목의 가장 마지막 당일재고 기록
+                prior_item = prior_df[prior_df["원료명"] == item]
+                prev_stock = prior_item.iloc[-1]["당일재고"] if not prior_item.empty else 0
+                
+                # 기간 내 집계
+                period_item = period_df[period_df["원료명"] == item]
+                curr_in = period_item["당일입고"].sum()
+                curr_use = period_item["당일사용"].sum()
+                curr_loss = period_item["로스"].sum()
+                
+                # 당일재고 수식: 전일재고 + 당일입고 - 당일사용 - 로스
+                curr_stock = prev_stock + curr_in - curr_use - curr_loss
+                
+                if prev_stock != 0 or curr_in != 0 or curr_use != 0 or curr_loss != 0 or curr_stock != 0:
+                    summary_rows.append({
+                        "원료명": item,
                         "전일재고 (kg)": round(prev_stock, 1),
-                        "입고량 (kg)": round(curr_in, 1),
-                        "출고량 (kg)": round(curr_out, 1),
-                        "로스량 (kg)": round(curr_loss, 1),
+                        "당일입고 (kg)": round(curr_in, 1),
+                        "당일사용 (kg)": round(curr_use, 1),
+                        "로스 (kg)": round(curr_loss, 1),
                         "당일재고 (kg)": round(curr_stock, 1)
                     })
 
-            if subul_list:
-                subul_df = pd.DataFrame(subul_list)
+            if summary_rows:
+                subul_df = pd.DataFrame(summary_rows)
                 
-                # 수불 요약 지표 표시
                 st.markdown("---")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("총 전일재고", f"{subul_df['전일재고 (kg)'].sum():,.1f} kg")
-                m2.metric("총 입고량", f"{subul_df['입고량 (kg)'].sum():,.1f} kg")
-                m3.metric("총 출고량", f"{subul_df['출고량 (kg)'].sum():,.1f} kg")
+                m2.metric("총 입고량", f"{subul_df['당일입고 (kg)'].sum():,.1f} kg")
+                m3.metric("총 사용량", f"{subul_df['당일사용 (kg)'].sum():,.1f} kg")
                 m4.metric("현재 당일재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg")
                 st.markdown("---")
 
-                st.write("##### 📋 품목별 수불 요약표")
+                st.write("##### 📋 품목별 수불 집계 요약표")
                 st.dataframe(subul_df, use_container_width=True)
 
-                # 하단 다운로드 및 인쇄 버튼
+                # 하단 버튼
                 b1, b2 = st.columns(2)
                 with b1:
-                    excel_subul = io.BytesIO()
-                    with pd.ExcelWriter(excel_subul, engine='openpyxl') as writer:
+                    excel_buffer = io.BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         subul_df.to_excel(writer, index=False, sheet_name='수불부')
                     
                     st.download_button(
-                        label="📥 수불부 엑셀 다운로드",
-                        data=excel_subul.getvalue(),
-                        file_name=f"수불부_{s_date}_{e_date}.xlsx",
+                        label="📥 수불부 정산표 엑셀 다운로드",
+                        data=excel_buffer.getvalue(),
+                        file_name=f"야채원재료_수불부_{s_date}_{e_date}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True,
-                        key="dl_subul"
+                        use_container_width=True
                     )
                 with b2:
                     st.components.v1.html("""
@@ -376,9 +319,9 @@ with tab5:
                         ">🖨️ 수불부 인쇄 / PDF 저장</button>
                     """, height=45)
             else:
-                st.info("해당 기간 동안 수불 내역이 없습니다.")
+                st.info("지정한 기간 동안 입력된 수불 내역이 없습니다.")
         else:
-            st.info("등록된 데이터가 없습니다.")
-
+            st.info("시트에 입력된 데이터가 없습니다.")
+            
     except Exception as e:
         st.error(f"수불부 계산 오류: {e}")
