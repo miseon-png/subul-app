@@ -8,7 +8,7 @@ import io
 st.set_page_config(page_title="야채 원재료 수불 관리 시스템", layout="wide")
 
 # ---------------------------------------------------------
-# 1. 구글 시트 연동
+# 1. 구글 시트 연동 및 보조 함수
 # ---------------------------------------------------------
 @st.cache_resource
 def init_gspread():
@@ -40,6 +40,11 @@ def init_gspread():
     
     url = st.secrets["sheets"]["spreadsheet_url"]
     return client.open_by_url(url)
+
+# 해당 월의 1일 날짜를 자동으로 가져오는 보조 함수
+def get_first_day_of_month():
+    today = date.today()
+    return date(today.year, today.month, 1)
 
 # 빈 헤더/중복 헤더 에러를 방지하는 안전한 시트 로더 함수
 def get_safe_dataframe(sheet_obj):
@@ -441,14 +446,15 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산 (총액 계산 보정 완료)
+# TAB 5: 거래처별 입고 정산 (해당 월 1일 자동 설정 적용)
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
     
     c1, c2, c3 = st.columns(3)
     with c1:
-        s_date_in = st.date_input("정산 시작일", value=date(2024, 7, 1), key="vendor_sdate")
+        # 해당 월의 1일로 기본값 지정
+        s_date_in = st.date_input("정산 시작일", value=get_first_day_of_month(), key="vendor_sdate")
     with c2:
         e_date_in = st.date_input("정산 종료일", value=datetime.today(), key="vendor_edate")
     with c3:
@@ -483,21 +489,18 @@ with tab5:
                     filtered_in = filtered_in[filtered_in["거래처"] == v_filter]
                     
                 if not filtered_in.empty:
-                    # 단가 추출
                     if "단가" in filtered_in.columns:
                         s_price = filtered_in["단가"].astype(str).str.replace(',', '')
                         filtered_in["단가_num"] = pd.to_numeric(s_price, errors='coerce').fillna(0)
                     else:
                         filtered_in["단가_num"] = 0.0
 
-                    # 총금액 추출 및 보정 (단가 * 입고 중량)
                     if "총금액" in filtered_in.columns:
                         s_tot = filtered_in["총금액"].astype(str).str.replace(',', '')
                         filtered_in["총금액_num"] = pd.to_numeric(s_tot, errors='coerce').fillna(0)
                     else:
                         filtered_in["총금액_num"] = 0.0
 
-                    # 총금액이 0원인 경우 자동 재계산 (중량 * 단가)
                     filtered_in["총금액_num"] = filtered_in.apply(
                         lambda r: r["총금액_num"] if r["총금액_num"] > 0 else round(r["당일입고"] * r["단가_num"]),
                         axis=1
@@ -522,7 +525,6 @@ with tab5:
                         비고모음=("비고", lambda x: ", ".join(set(filter(None, map(str, x)))))
                     ).reset_index()
 
-                    # 총액 보정
                     vendor_summary["총액_calc"] = vendor_summary.apply(
                         lambda r: r["총액"] if r["총액"] > 0 else round(r["총중량"] * r["평균단가"]),
                         axis=1
@@ -597,14 +599,15 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 거래처별 출고 정산
+# TAB 6: 거래처별 출고 정산 (해당 월 1일 자동 설정 적용)
 # ---------------------------------------------------------
 with tab6:
     st.subheader("🚚 거래처별 출고 정산 내역")
     
     o1, o2, o3 = st.columns(3)
     with o1:
-        s_date_out = st.date_input("정산 시작일", value=date(2024, 7, 1), key="out_vendor_sdate")
+        # 해당 월의 1일로 기본값 지정
+        s_date_out = st.date_input("정산 시작일", value=get_first_day_of_month(), key="out_vendor_sdate")
     with o2:
         e_date_out = st.date_input("정산 종료일", value=datetime.today(), key="out_vendor_edate")
     with o3:
@@ -716,14 +719,15 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부
+# TAB 7: 수불부 (해당 월 1일 자동 설정 적용)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (재고 정산)")
     
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 0.8])
     with ctrl1:
-        s_date = st.date_input("정산 시작일", value=date(2024, 7, 1), key="subul_sdate")
+        # 해당 월의 1일로 기본값 지정
+        s_date = st.date_input("정산 시작일", value=get_first_day_of_month(), key="subul_sdate")
     with ctrl2:
         e_date = st.date_input("정산 종료일", value=datetime.today(), key="subul_edate")
     with ctrl3:
