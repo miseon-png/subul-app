@@ -140,10 +140,10 @@ def get_latest_stock(sheet_obj, item_name):
     return float(val) if pd.notnull(val) else 0.0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록
+# TAB 1: 입고 등록 (마이너스/반품 입력 허용)
 # ---------------------------------------------------------
 with tab1:
-    st.subheader("📥 원재료 입고 일괄 등록")
+    st.subheader("📥 원재료 입고 일괄 등록 (반품 시 -중량 입력)")
     
     col_date, col_vendor, col_btn = st.columns([1.5, 1.5, 1])
     with col_date:
@@ -162,7 +162,7 @@ with tab1:
         
         h1, h2, h3, h4 = st.columns([2, 1.5, 1.5, 2])
         h1.caption("**원료명**")
-        h2.caption("**입고 중량 (kg)**")
+        h2.caption("**입고 중량 (kg) [반품: -]**")
         h3.caption("**단가 (원/kg)**")
         h4.caption("**비고**")
 
@@ -171,11 +171,12 @@ with tab1:
             with c1:
                 item = st.selectbox(f"품목 #{i+1}", ITEMS, index=0, key=f"in_item_{i}", label_visibility="collapsed")
             with c2:
-                weight = st.number_input(f"중량 #{i+1}", min_value=0.0, step=0.5, format="%.1f", key=f"in_weight_{i}", label_visibility="collapsed")
+                # min_value 제한 제거 -> 마이너스(-) 입력 허용
+                weight = st.number_input(f"중량 #{i+1}", min_value=None, step=0.5, format="%.1f", key=f"in_weight_{i}", label_visibility="collapsed")
             with c3:
-                price = st.number_input(f"단가 #{i+1}", min_value=0, step=100, key=f"in_price_{i}", label_visibility="collapsed")
+                price = st.number_input(f"단가 #{i+1}", min_value=None, step=100, key=f"in_price_{i}", label_visibility="collapsed")
             with c4:
-                note = st.text_input(f"비고 #{i+1}", placeholder="특이사항 메모", key=f"in_note_{i}", label_visibility="collapsed")
+                note = st.text_input(f"비고 #{i+1}", placeholder="예: 입고 반품, 특이사항 메모", key=f"in_note_{i}", label_visibility="collapsed")
                 
             in_inputs.append({"item": item, "weight": weight, "price": price, "note": note})
 
@@ -189,7 +190,8 @@ with tab1:
                     w = float(row["weight"])
                     p = int(row["price"])
                     
-                    if itm != "선택 안함" and w > 0:
+                    # '선택 안함'이 아니고 중량이 0이 아닌 경우 저장 (마이너스 수량 포함)
+                    if itm != "선택 안함" and w != 0:
                         nt = str(row["note"])
                         tot = int(round(w * p))
                         
@@ -214,9 +216,9 @@ with tab1:
                         saved_count += 1
 
                 if saved_count > 0:
-                    st.success(f"✅ 총 {saved_count}개 입고 품목 저장 완료!")
+                    st.success(f"✅ 총 {saved_count}개 입고/반품 품목 저장 완료!")
                 else:
-                    st.warning("⚠️ 선택된 품목이 없거나 입고 중량이 0kg 초과인 항목이 없습니다.")
+                    st.warning("⚠️ 선택된 품목이 없거나 입고 중량이 0kg인 항목만 있습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
@@ -230,10 +232,10 @@ with tab1:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록
+# TAB 2: 출고(사용) 등록 (마이너스/반품 입력 허용)
 # ---------------------------------------------------------
 with tab2:
-    st.subheader("📤 원재료 출고(사용) 일괄 등록")
+    st.subheader("📤 원재료 출고(사용) 일괄 등록 (반품 시 -중량 입력)")
     
     col_date2, col_vendor2, col_btn2 = st.columns([1.5, 1.5, 1])
     with col_date2:
@@ -252,7 +254,7 @@ with tab2:
         
         h1, h2, h3 = st.columns([2, 2, 3])
         h1.caption("**원료명**")
-        h2.caption("**출고(사용) 중량 (kg)**")
+        h2.caption("**출고(사용) 중량 (kg) [반품: -]**")
         h3.caption("**비고**")
 
         for i in range(st.session_state.out_rows):
@@ -260,9 +262,10 @@ with tab2:
             with c1:
                 item = st.selectbox(f"출고품목 #{i+1}", ITEMS, index=0, key=f"out_item_{i}", label_visibility="collapsed")
             with c2:
-                weight = st.number_input(f"출고중량 #{i+1}", min_value=0.0, step=0.5, format="%.1f", key=f"out_weight_{i}", label_visibility="collapsed")
+                # min_value 제한 제거 -> 마이너스(-) 입력 허용
+                weight = st.number_input(f"출고중량 #{i+1}", min_value=None, step=0.5, format="%.1f", key=f"out_weight_{i}", label_visibility="collapsed")
             with c3:
-                note = st.text_input(f"출고비고 #{i+1}", placeholder="특이사항 메모", key=f"out_note_{i}", label_visibility="collapsed")
+                note = st.text_input(f"출고비고 #{i+1}", placeholder="예: 출고 반품, 특이사항 메모", key=f"out_note_{i}", label_visibility="collapsed")
                 
             out_inputs.append({"item": item, "weight": weight, "note": note})
 
@@ -275,7 +278,7 @@ with tab2:
                     itm = str(row["item"])
                     w = float(row["weight"])
                     
-                    if itm != "선택 안함" and w > 0:
+                    if itm != "선택 안함" and w != 0:
                         nt = str(row["note"])
                         
                         prev_stock = get_latest_stock(sheet, itm)
@@ -299,9 +302,9 @@ with tab2:
                         saved_count += 1
 
                 if saved_count > 0:
-                    st.success(f"✅ 총 {saved_count}개 출고 품목 저장 완료!")
+                    st.success(f"✅ 총 {saved_count}개 출고/반품 품목 저장 완료!")
                 else:
-                    st.warning("⚠️ 선택된 품목이 없거나 출고 중량이 0kg 초과인 항목이 없습니다.")
+                    st.warning("⚠️ 선택된 품목이 없거나 출고 중량이 0kg인 항목만 있습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
@@ -369,7 +372,7 @@ with tab3:
                 itm = str(row["원료명"])
                 total_w = float(pd.to_numeric(row["총 필요 중량 (kg)"], errors='coerce') or 0.0)
                 
-                if itm and itm != "선택 안함" and total_w > 0:
+                if itm and itm != "선택 안함" and total_w != 0:
                     prev_stock = get_latest_stock(sheet, itm)
                     day_stock = round(prev_stock - total_w, 2)
                     
@@ -395,7 +398,7 @@ with tab3:
             if saved_count > 0:
                 st.success(f"✅ [{product_name} {prod_qty}개] 배합비에 따른 야채 원재료 {saved_count}종 출고 저장 완료!")
             else:
-                st.warning("⚠️ 출고 중량이 0kg 초과인 원재료가 없습니다.")
+                st.warning("⚠️ 출고 중량이 0kg인 항목만 있습니다.")
         except Exception as e:
             st.error(f"배합비 출고 저장 실패: {e}")
 
@@ -446,7 +449,7 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산 (월 1일 기본 지정)
+# TAB 5: 거래처별 입고 정산
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
@@ -470,7 +473,8 @@ with tab5:
             else:
                 df["당일입고"] = 0.0
 
-            in_df = df[df["당일입고"] > 0].copy()
+            # 0이 아닌 모든 입고/반품 건 조회
+            in_df = df[df["당일입고"] != 0].copy()
             
             if not in_df.empty:
                 filtered_in = in_df[
@@ -501,7 +505,7 @@ with tab5:
                         filtered_in["총금액_num"] = 0.0
 
                     filtered_in["총금액_num"] = filtered_in.apply(
-                        lambda r: r["총금액_num"] if r["총금액_num"] > 0 else round(r["당일입고"] * r["단가_num"]),
+                        lambda r: r["총금액_num"] if r["총금액_num"] != 0 else round(r["당일입고"] * r["단가_num"]),
                         axis=1
                     )
 
@@ -525,7 +529,7 @@ with tab5:
                     ).reset_index()
 
                     vendor_summary["총액_calc"] = vendor_summary.apply(
-                        lambda r: r["총액"] if r["총액"] > 0 else round(r["총중량"] * r["평균단가"]),
+                        lambda r: r["총액"] if r["총액"] != 0 else round(r["총중량"] * r["평균단가"]),
                         axis=1
                     )
 
@@ -598,7 +602,7 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 거래처별 출고 정산 (월 1일 기본 지정)
+# TAB 6: 거래처별 출고 정산
 # ---------------------------------------------------------
 with tab6:
     st.subheader("🚚 거래처별 출고 정산 내역")
@@ -622,7 +626,8 @@ with tab6:
             else:
                 df["당일사용"] = 0.0
 
-            out_df = df[df["당일사용"] > 0].copy()
+            # 0이 아닌 모든 출고/반품 건 조회
+            out_df = df[df["당일사용"] != 0].copy()
             
             if not out_df.empty:
                 filtered_out = out_df[
@@ -717,7 +722,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (월 1일 기본 지정)
+# TAB 7: 수불부
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (재고 정산)")
