@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
+import json
 from datetime import datetime
 
 # 페이지 기본 설정
 st.set_page_config(page_title="야채 원재료 수불부", layout="wide")
 
 # ---------------------------------------------------------
-# 구글 시트 연동 함수 (Secrets 개별 항목 읽기 방식)
+# 1. 구글 시트 연동 함수
 # ---------------------------------------------------------
 @st.cache_resource
 def init_gspread():
@@ -17,14 +18,24 @@ def init_gspread():
         "https://www.googleapis.com/auth/drive"
     ]
     
+    # Secrets 읽기
     gcp_info = st.secrets["gcp_service_account"]
-    creds_dict = {
-        "type": "service_account",
-        "project_id": gcp_info["project_id"],
-        "private_key": gcp_info["private_key"].replace("\\n", "\n"),
-        "client_email": gcp_info["client_email"],
-        "token_uri": "https://oauth2.googleapis.com/token",
-    }
+    
+    # json_cert 문자열 파싱 처리 또는 개별 키 방식 자동 지원
+    if "json_cert" in gcp_info:
+        raw_json = gcp_info["json_cert"]
+        if isinstance(raw_json, str):
+            creds_dict = json.loads(raw_json, strict=False)
+        else:
+            creds_dict = dict(raw_json)
+    else:
+        creds_dict = {
+            "type": "service_account",
+            "project_id": gcp_info.get("project_id", ""),
+            "private_key": gcp_info.get("private_key", "").replace("\\n", "\n"),
+            "client_email": gcp_info.get("client_email", ""),
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
 
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     client = gspread.authorize(creds)
@@ -34,7 +45,7 @@ def init_gspread():
     return doc
 
 # ---------------------------------------------------------
-# 메인 화면 구성
+# 2. 메인 화면 구성 및 연동 테스트
 # ---------------------------------------------------------
 st.title("🥬 야채 원재료 수불부 작성 앱")
 
@@ -43,13 +54,15 @@ try:
     sheet = doc.get_worksheet(0)
     st.success("✅ 구글 시트 연동 성공!")
 except Exception as e:
-st.error(f"❌ 구글 시트 연동 실패")
-st.exception(e)  # <--- 이 줄을 추가하면 정확한 파이썬 에러 원인이 화면에 뜹니다
+    st.error("❌ 구글 시트 연동 실패")
+    st.exception(e)
     st.stop()
 
 st.divider()
 
-# --- [입력 폼 영역] ---
+# ---------------------------------------------------------
+# 3. 수불 내역 등록 폼
+# ---------------------------------------------------------
 st.subheader("📝 수불 내역 등록")
 
 with st.form("subul_form", clear_on_submit=True):
@@ -85,12 +98,14 @@ with st.form("subul_form", clear_on_submit=True):
             try:
                 sheet.append_row(new_row)
                 st.success(f"'{item_name}' 내역이 구글 시트에 성공적으로 저장되었습니다!")
-            except Exception as e:
-                st.error(f"데이터 저장 실패: {e}")
+            except Exception as save_err:
+                st.error(f"데이터 저장 실패: {save_err}")
 
 st.divider()
 
-# --- [시트 데이터 조회 영역] ---
+# ---------------------------------------------------------
+# 4. 수불 기록 조회 영역
+# ---------------------------------------------------------
 st.subheader("📊 현재 수불 기록 조회")
 
 try:
@@ -100,7 +115,7 @@ try:
         st.dataframe(df, use_container_width=True)
     else:
         st.info("구글 시트에 아직 데이터가 없습니다. 위 입력 폼을 통해 내역을 작성해 보세요.")
-except Exception as e:
+except Exception:
     try:
         raw_rows = sheet.get_all_values()
         if raw_rows:
@@ -108,5 +123,5 @@ except Exception as e:
             st.dataframe(df, use_container_width=True)
         else:
             st.info("시트가 비어 있습니다. 내역을 등록하면 자동으로 기록됩니다.")
-    except Exception:
-        st.warning("데이터를 불러오는 중입니다.")
+    except Exception as read_err:
+        st.warning(f"데이터를 불러오는 중 오류 발생: {read_err}")
