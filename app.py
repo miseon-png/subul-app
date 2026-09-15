@@ -229,7 +229,7 @@ with tab3:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: 거래처별 입고 정산 (기간, 거래처, 품명, 단가, 총액, 비고)
+# TAB 4: 거래처별 입고 정산 (오류 수정 버전)
 # ---------------------------------------------------------
 with tab4:
     st.subheader("📅 거래처별 입고 정산 내역")
@@ -260,19 +260,27 @@ with tab4:
                     (in_df["일자_parsed"] <= e_date_in)
                 ].copy()
                 
-                # 거래처가 비어있을 경우 미지정 처리
+                # 거래처 컬럼 안전 처리
                 if "거래처" not in filtered_in.columns:
                     filtered_in["거래처"] = "미지정"
                 else:
-                    filtered_in["거래처"] = filtered_in["거래처"].fillna("미지정").replace("", "미지정")
+                    filtered_in["거래처"] = filtered_in["거래처"].astype(str).replace(["", "None", "nan"], "미지정")
                 
                 if v_filter != "전체":
                     filtered_in = filtered_in[filtered_in["거래처"] == v_filter]
                     
                 if not filtered_in.empty:
-                    # 금액 및 단가 숫자 변환
-                    filtered_in["총금액_num"] = pd.to_numeric(filtered_in.get("총금액", 0), errors='coerce').fillna(0)
-                    filtered_in["단가_num"] = pd.to_numeric(filtered_in.get("단가", 0), errors='coerce').fillna(0)
+                    # [오류 수정 핵심부분] 컬럼 데이터 안전 숫자 변환
+                    if "총금액" in filtered_in.columns:
+                        filtered_in["총금액_num"] = pd.to_numeric(filtered_in["총금액"], errors='coerce').fillna(0)
+                    else:
+                        filtered_in["총금액_num"] = 0.0
+
+                    if "단가" in filtered_in.columns:
+                        filtered_in["단가_num"] = pd.to_numeric(filtered_in["단가"], errors='coerce').fillna(0)
+                    else:
+                        filtered_in["단가_num"] = 0.0
+
                     if "비고" not in filtered_in.columns:
                         filtered_in["비고"] = "-"
 
@@ -285,16 +293,14 @@ with tab4:
                     m3.metric("총 입고 금액", f"{filtered_in['총금액_num'].sum():,} 원")
                     st.markdown("---")
 
-                    # [요청한 정산 표 생성]: 기간, 거래처, 품명(원료명), 단가, 총액, 비고
                     # 거래처별 & 품목별 집계 정산표 구성
                     vendor_summary = filtered_in.groupby(["거래처", "원료명"]).agg(
                         총중량=("당일입고", "sum"),
                         총액=("총금액_num", "sum"),
                         평균단가=("단가_num", "mean"),
-                        비고모음=("비고", lambda x: ", ".join(set(filter(None, x))))
+                        비고모음=("비고", lambda x: ", ".join(set(filter(None, map(str, x)))))
                     ).reset_index()
 
-                    # 거래처 정산 최종 Dataframe 구성
                     display_vendor_df = pd.DataFrame({
                         "기간": period_str,
                         "거래처": vendor_summary["거래처"],
