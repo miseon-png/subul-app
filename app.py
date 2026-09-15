@@ -43,7 +43,8 @@ try:
     sheet = doc.get_worksheet(0)
     st.success("✅ 구글 시트 연동 성공!")
 except Exception as e:
-    st.error(f"❌ 구글 시트 연동 실패: {e}")
+st.error(f"❌ 구글 시트 연동 실패")
+st.exception(e)  # <--- 이 줄을 추가하면 정확한 파이썬 에러 원인이 화면에 뜹니다
     st.stop()
 
 st.divider()
