@@ -441,7 +441,7 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산 (오류 수정)
+# TAB 5: 거래처별 입고 정산 (총액 계산 보정 완료)
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
@@ -459,7 +459,6 @@ with tab5:
         if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
-            # 당일입고 안전 변환
             if "당일입고" in df.columns:
                 s_in = df["당일입고"].astype(str).str.replace(',', '')
                 df["당일입고"] = pd.to_numeric(s_in, errors='coerce').fillna(0)
@@ -484,18 +483,25 @@ with tab5:
                     filtered_in = filtered_in[filtered_in["거래처"] == v_filter]
                     
                 if not filtered_in.empty:
-                    # 안전한 총금액/단가 변환 (int64/astype 오류 방지)
+                    # 단가 추출
+                    if "단가" in filtered_in.columns:
+                        s_price = filtered_in["단가"].astype(str).str.replace(',', '')
+                        filtered_in["단가_num"] = pd.to_numeric(s_price, errors='coerce').fillna(0)
+                    else:
+                        filtered_in["단가_num"] = 0.0
+
+                    # 총금액 추출 및 보정 (단가 * 입고 중량)
                     if "총금액" in filtered_in.columns:
                         s_tot = filtered_in["총금액"].astype(str).str.replace(',', '')
                         filtered_in["총금액_num"] = pd.to_numeric(s_tot, errors='coerce').fillna(0)
                     else:
                         filtered_in["총금액_num"] = 0.0
 
-                    if "단가" in filtered_in.columns:
-                        s_price = filtered_in["단가"].astype(str).str.replace(',', '')
-                        filtered_in["단가_num"] = pd.to_numeric(s_price, errors='coerce').fillna(0)
-                    else:
-                        filtered_in["단가_num"] = 0.0
+                    # 총금액이 0원인 경우 자동 재계산 (중량 * 단가)
+                    filtered_in["총금액_num"] = filtered_in.apply(
+                        lambda r: r["총금액_num"] if r["총금액_num"] > 0 else round(r["당일입고"] * r["단가_num"]),
+                        axis=1
+                    )
 
                     if "비고" not in filtered_in.columns:
                         filtered_in["비고"] = "-"
@@ -516,13 +522,19 @@ with tab5:
                         비고모음=("비고", lambda x: ", ".join(set(filter(None, map(str, x)))))
                     ).reset_index()
 
+                    # 총액 보정
+                    vendor_summary["총액_calc"] = vendor_summary.apply(
+                        lambda r: r["총액"] if r["총액"] > 0 else round(r["총중량"] * r["평균단가"]),
+                        axis=1
+                    )
+
                     display_vendor_df = pd.DataFrame({
                         "기간": period_str,
                         "거래처": vendor_summary["거래처"],
                         "품명": vendor_summary["원료명"],
                         "입고 중량 (kg)": vendor_summary["총중량"].round(1),
                         "단가": vendor_summary["평균단가"].round(0),
-                        "총액": vendor_summary["총액"],
+                        "총액": vendor_summary["총액_calc"],
                         "비고": vendor_summary["비고모음"]
                     })
 
