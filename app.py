@@ -60,11 +60,11 @@ INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "�
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
 DEFAULT_RECIPES = {
-    "스윗밸런스 브런치빈 1kg": {
-        "양상추": 0.6,
-        "양배추": 0.2,
-        "적채": 0.1,
-        "프릴아이스": 0.1
+    "스윗밸런스 대표 샐러드": {
+        "카이피라": 0.05,
+        "프릴아이스": 0.03,
+        "양상추": 0.04,
+        "적근대": 0.01
     },
     "쿠팡 믹스 샐러드": {
         "로메인": 0.06,
@@ -97,7 +97,6 @@ except Exception as e:
     st.error(f"구글 시트 로드 실패: {e}")
     st.stop()
 
-# 탭 구성: 거래처별 출고 정산 탭 추가
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📥 입고 등록 (다중)", 
     "📤 출고(사용) 등록 (다중)", 
@@ -112,16 +111,17 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 def get_latest_stock(sheet_obj, item_name):
     all_data = sheet_obj.get_all_records()
     if not all_data:
-        return 0
+        return 0.0
     df_all = pd.DataFrame(all_data)
     item_df = df_all[df_all["원료명"] == item_name]
     if item_df.empty:
-        return 0
+        return 0.0
     last_stock = item_df.iloc[-1].get("당일재고", 0)
-    return pd.to_numeric(last_stock, errors='coerce') or 0
+    val = pd.to_numeric(last_stock, errors='coerce')
+    return float(val) if pd.notnull(val) else 0.0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록 (다중)
+# TAB 1: 입고 등록 (JSON 직렬화 에러 수정완료)
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록")
@@ -166,29 +166,30 @@ with tab1:
             saved_count = 0
             try:
                 for row in in_inputs:
-                    itm = row["item"]
-                    w = row["weight"]
-                    p = row["price"]
+                    itm = str(row["item"])
+                    w = float(row["weight"])
+                    p = int(row["price"])
                     
                     if itm != "선택 안함" and w > 0:
-                        nt = row["note"]
-                        tot = int(w * p)
+                        nt = str(row["note"])
+                        tot = int(round(w * p))
                         
                         prev_stock = get_latest_stock(sheet, itm)
-                        day_stock = prev_stock + w
+                        day_stock = round(prev_stock + w, 2)
                         
+                        # 모든 숫자를 파이썬 기본 int / float 타입으로 강제 변환
                         row_data = [
                             str(record_date),
                             "야채 원재료",
                             itm,
-                            prev_stock,
-                            w,
-                            0,
-                            0,
-                            day_stock,
-                            vendor,
-                            p,
-                            tot,
+                            float(prev_stock),
+                            float(w),
+                            0.0,
+                            0.0,
+                            float(day_stock),
+                            str(vendor),
+                            int(p),
+                            int(tot),
                             nt
                         ]
                         sheet.append_row(row_data)
@@ -212,7 +213,7 @@ with tab1:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록 (다중)
+# TAB 2: 출고(사용) 등록
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록")
@@ -254,25 +255,25 @@ with tab2:
             saved_count = 0
             try:
                 for row in out_inputs:
-                    itm = row["item"]
-                    w = row["weight"]
+                    itm = str(row["item"])
+                    w = float(row["weight"])
                     
                     if itm != "선택 안함" and w > 0:
-                        nt = row["note"]
+                        nt = str(row["note"])
                         
                         prev_stock = get_latest_stock(sheet, itm)
-                        day_stock = prev_stock - w
+                        day_stock = round(prev_stock - w, 2)
                         
                         row_data = [
                             str(record_date_out),
                             "야채 원재료",
                             itm,
-                            prev_stock,
-                            0,
-                            w,
-                            0,
-                            day_stock,
-                            vendor_out,
+                            float(prev_stock),
+                            0.0,
+                            float(w),
+                            0.0,
+                            float(day_stock),
+                            str(vendor_out),
                             "-",
                             "-",
                             nt
@@ -349,12 +350,12 @@ with tab3:
         saved_count = 0
         try:
             for idx, row in edited_recipe_df.iterrows():
-                itm = row["원료명"]
-                total_w = pd.to_numeric(row["총 필요 중량 (kg)"], errors='coerce') or 0
+                itm = str(row["원료명"])
+                total_w = float(pd.to_numeric(row["총 필요 중량 (kg)"], errors='coerce') or 0.0)
                 
                 if itm and itm != "선택 안함" and total_w > 0:
                     prev_stock = get_latest_stock(sheet, itm)
-                    day_stock = prev_stock - total_w
+                    day_stock = round(prev_stock - total_w, 2)
                     
                     full_note = f"[{product_name} {prod_qty}개 배합출고] {recipe_note}".strip()
                     
@@ -362,12 +363,12 @@ with tab3:
                         str(recipe_date),
                         "야채 원재료",
                         itm,
-                        prev_stock,
-                        0,
-                        total_w,
-                        0,
-                        day_stock,
-                        recipe_vendor,
+                        float(prev_stock),
+                        0.0,
+                        float(total_w),
+                        0.0,
+                        float(day_stock),
+                        str(recipe_vendor),
                         "-",
                         "-",
                         full_note
@@ -403,26 +404,28 @@ with tab4:
 
         if submitted:
             try:
-                prev_stock = get_latest_stock(sheet, item)
-                day_stock = prev_stock - loss_weight
+                itm = str(item)
+                lw = float(loss_weight)
+                prev_stock = get_latest_stock(sheet, itm)
+                day_stock = round(prev_stock - lw, 2)
                 
                 row_data = [
                     str(record_date),
                     "야채 원재료",
-                    item,
-                    prev_stock,
-                    0,
-                    0,
-                    loss_weight,
-                    day_stock,
+                    itm,
+                    float(prev_stock),
+                    0.0,
+                    0.0,
+                    float(lw),
+                    float(day_stock),
                     "자체폐기",
                     "-",
                     "-",
-                    note
+                    str(note)
                 ]
                 
                 sheet.append_row(row_data)
-                st.success(f"✅ [로스 완료] {item} {loss_weight}kg / 전일재고: {prev_stock}kg ➡️ 당일재고: {day_stock}kg")
+                st.success(f"✅ [로스 완료] {itm} {lw}kg / 전일재고: {prev_stock}kg ➡️ 당일재고: {day_stock}kg")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
@@ -561,7 +564,7 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 거래처별 출고 정산 (신규 추가!)
+# TAB 6: 거래처별 출고 정산
 # ---------------------------------------------------------
 with tab6:
     st.subheader("🚚 거래처별 출고 정산 내역")
@@ -580,7 +583,6 @@ with tab6:
             df = pd.DataFrame(all_records)
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
-            # 출고 수량(당일사용)이 0보다 큰 행 필터링
             df["당일사용"] = pd.to_numeric(df["당일사용"], errors='coerce').fillna(0)
             out_df = df[df["당일사용"] > 0].copy()
             
@@ -611,7 +613,6 @@ with tab6:
                     om2.metric("총 출고 중량", f"{filtered_out['당일사용'].sum():,.1f} kg")
                     st.markdown("---")
 
-                    # 거래처별 & 품목별 출고 집계표
                     out_vendor_summary = filtered_out.groupby(["거래처", "원료명"]).agg(
                         총출고중량=("당일사용", "sum"),
                         출고건수=("당일사용", "count"),
