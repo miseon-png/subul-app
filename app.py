@@ -50,7 +50,7 @@ ITEMS = [
     "양상추", "양배추", "적채", "당근"
 ]
 
-INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "기타"]
+INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
 # ---------------------------------------------------------
@@ -65,12 +65,11 @@ except Exception as e:
     st.error(f"구글 시트 연동 실패: {e}")
     st.stop()
 
-# 탭 구조를 [입고 입력] / [출고 입력] / [기간별 입고 리스트] / [전체 내역] 으로 분리
 tab1, tab2, tab3, tab4 = st.tabs([
     "📥 입고 등록", 
     "📤 출고 등록", 
     "📅 기간별 입고 리스트", 
-    "📊 전체 내역 조회"
+    "📊 전체 내역 조회 & 출력"
 ])
 
 # ---------------------------------------------------------
@@ -83,16 +82,16 @@ with tab1:
         col1, col2 = st.columns(2)
         
         with col1:
-            record_date = st.date_input("입고 날짜", value=datetime.today(), key="in_date")
-            item = st.selectbox("품목명", ITEMS, key="in_item")
-            vendor = st.selectbox("입고 거래처", INBOUND_VENDORS, key="in_vendor")
+            record_date = st.date_input("입고 날짜", value=datetime.today())
+            item = st.selectbox("품목명", ITEMS)
+            vendor = st.selectbox("입고 거래처", INBOUND_VENDORS)
 
         with col2:
-            weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="in_weight")
-            unit_price = st.number_input("입고 단가 (원/kg)", min_value=0, step=100, key="in_price")
+            weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f")
+            unit_price = st.number_input("입고 단가 (원/kg)", min_value=0, step=100)
             total_price = int(weight * unit_price)
             st.info(f"💡 **입고 총 금액:** `{total_price:,} 원`")
-            note = st.text_input("비고", placeholder="특이사항 메모", key="in_note")
+            note = st.text_input("비고", placeholder="특이사항 메모")
 
         submitted = st.form_submit_button("입고 저장하기", use_container_width=True)
 
@@ -116,7 +115,7 @@ with tab1:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 2: 출고 전용 입력 폼 (단가/금액 없음)
+# TAB 2: 출고 전용 입력 폼
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 출고 데이터 등록")
@@ -125,13 +124,13 @@ with tab2:
         col1, col2 = st.columns(2)
         
         with col1:
-            record_date = st.date_input("출고 날짜", value=datetime.today(), key="out_date")
-            item = st.selectbox("품목명", ITEMS, key="out_item")
+            record_date = st.date_input("출고 날짜", value=datetime.today())
+            item = st.selectbox("품목명", ITEMS)
 
         with col2:
-            vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_vendor")
-            weight = st.number_input("출고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="out_weight")
-            note = st.text_input("비고", placeholder="특이사항 메모", key="out_note")
+            vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS)
+            weight = st.number_input("출고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f")
+            note = st.text_input("비고", placeholder="특이사항 메모")
 
         submitted = st.form_submit_button("출고 저장하기", use_container_width=True)
 
@@ -142,8 +141,8 @@ with tab2:
                 item,
                 vendor,
                 weight,
-                "-",  # 단가 없음
-                "-",  # 총금액 없음
+                "-",
+                "-",
                 note,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ]
@@ -155,7 +154,7 @@ with tab2:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 3: 기간별 입고 리스트 (정산용)
+# TAB 3: 기간별 입고 리스트 (작동이 확인된 기존 코드 기반)
 # ---------------------------------------------------------
 with tab3:
     st.subheader("📅 기간별 입고 리스트 & 정산")
@@ -219,16 +218,88 @@ with tab3:
         st.error(f"데이터 조회 중 오류 발생: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: 전체 내역 조회
+# TAB 4: 전체 내역 조회 & 기간 검색 및 다운로드
 # ---------------------------------------------------------
 with tab4:
-    st.subheader("전체 입출고 데이터")
-    if st.button("🔄 새로고침"):
-        st.cache_data.clear()
-        
+    st.subheader("📊 전체 입출고 내역 검색 및 출력")
+    
+    # 상단 컨트롤바
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 0.8])
+    with ctrl1:
+        s_date = st.date_input("조회 시작일", value=date(datetime.now().year, datetime.now().month, 1), key="tab4_sdate")
+    with ctrl2:
+        e_date = st.date_input("조회 종료일", value=datetime.today(), key="tab4_edate")
+    with ctrl3:
+        g_filter = st.selectbox("구분", ["전체", "입고", "출고"], key="tab4_gfilter")
+    with ctrl4:
+        st.write(" ")
+        if st.button("🔄 새로고침", use_container_width=True):
+            st.cache_data.clear()
+
     try:
         data = sheet.get_all_records()
         if data:
-            st.dataframe(pd.DataFrame(data), use_container_width=True)
+            df_all = pd.DataFrame(data)
+            
+            # 날짜 변환
+            df_all["날짜_검색용"] = pd.to_datetime(df_all["날짜"]).dt.date
+            
+            # 기간 필터링
+            df_filtered = df_all[(df_all["날짜_검색용"] >= s_date) & (df_all["날짜_검색용"] <= e_date)].copy()
+            
+            # 입/출고 구분 필터링
+            if g_filter != "전체":
+                df_filtered = df_filtered[df_filtered["구분"] == g_filter]
+                
+            df_filtered = df_filtered.sort_values(by="날짜_검색용", ascending=False)
+            df_filtered = df_filtered.drop(columns=["날짜_검색용"]) # 임시 컬럼 삭제
+
+            if not df_filtered.empty:
+                # 요약 지표
+                st.markdown("---")
+                m1, m2 = st.columns(2)
+                m1.metric("조회 건수", f"{len(df_filtered):,} 건")
+                
+                # 중량 컬럼 숫자로 안전 변환 후 합계 계산
+                weight_numeric = pd.to_numeric(df_filtered["중량(kg)"], errors='coerce').fillna(0)
+                m2.metric("총 중량 합계", f"{weight_numeric.sum():,.1f} kg")
+                st.markdown("---")
+
+                # 테이블 출력
+                st.dataframe(df_filtered, use_container_width=True)
+
+                # 하단 버튼
+                btn1, btn2 = st.columns(2)
+                with btn1:
+                    excel_all = io.BytesIO()
+                    with pd.ExcelWriter(excel_all, engine='openpyxl') as writer:
+                        df_filtered.to_excel(writer, index=False, sheet_name='전체입출고내역')
+                    
+                    st.download_button(
+                        label="📥 검색 결과 엑셀 다운로드",
+                        data=excel_all.getvalue(),
+                        file_name=f"전체입출고내역_{s_date}_{e_date}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                with btn2:
+                    st.components.v1.html("""
+                        <button onclick="window.print()" style="
+                            width: 100%;
+                            height: 38px;
+                            background-color: #FF4B4B;
+                            color: white;
+                            border: none;
+                            border-radius: 8px;
+                            font-size: 14px;
+                            font-weight: bold;
+                            cursor: pointer;
+                        ">🖨️ 인쇄 / PDF 저장</button>
+                    """, height=45)
+            else:
+                st.info("선택한 기간 및 조건에 해당하는 내역이 없습니다.")
+        else:
+            st.info("등록된 데이터가 없습니다.")
+
     except Exception as e:
-        st.error(f"조회 실패: {e}")
+        st.error(f"데이터 조회 오류: {e}")
