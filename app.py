@@ -49,16 +49,16 @@ def safe_parse_date(series):
 # ---------------------------------------------------------
 # 2. 마스터 데이터 및 배합비(Recipe) 정의
 # ---------------------------------------------------------
-ITEMS = [
+RAW_ITEMS = [
     "카이피라", "프릴아이스", "버터헤드", "레드오크", 
     "로메인", "치커리", "적근대", "케일", 
     "양상추", "양배추", "적채", "당근"
 ]
+ITEMS = ["선택 안함"] + RAW_ITEMS
 
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
-# 기본 배합비 세팅 (제품별 1개당 들어가야 하는 야채 중량 kg)
 DEFAULT_RECIPES = {
     "스윗밸런스 대표 샐러드": {
         "카이피라": 0.05,
@@ -80,7 +80,6 @@ DEFAULT_RECIPES = {
     }
 }
 
-# 세션 상태 초기화 (다중 행 제어용)
 if "in_rows" not in st.session_state:
     st.session_state.in_rows = 4
 if "out_rows" not in st.session_state:
@@ -98,10 +97,9 @@ except Exception as e:
     st.error(f"구글 시트 로드 실패: {e}")
     st.stop()
 
-# 탭 구성에 [배합비 출고] 탭 추가
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📥 입고 등록", 
-    "📤 출고(사용) 등록", 
+    "📥 입고 등록 (다중)", 
+    "📤 출고(사용) 등록 (다중)", 
     "🥗 배합비 자동 출고",
     "🚮 로스 등록", 
     "📅 거래처별 입고 정산",
@@ -121,7 +119,7 @@ def get_latest_stock(sheet_obj, item_name):
     return pd.to_numeric(last_stock, errors='coerce') or 0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록 (다중)
+# TAB 1: 입고 등록 (최근 8건 실시간 확인)
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록")
@@ -150,7 +148,7 @@ with tab1:
         for i in range(st.session_state.in_rows):
             c1, c2, c3, c4 = st.columns([2, 1.5, 1.5, 2])
             with c1:
-                item = st.selectbox(f"품목 #{i+1}", ITEMS, index=i % len(ITEMS), key=f"in_item_{i}", label_visibility="collapsed")
+                item = st.selectbox(f"품목 #{i+1}", ITEMS, index=0, key=f"in_item_{i}", label_visibility="collapsed")
             with c2:
                 weight = st.number_input(f"중량 #{i+1}", min_value=0.0, step=0.5, format="%.1f", key=f"in_weight_{i}", label_visibility="collapsed")
             with c3:
@@ -166,10 +164,11 @@ with tab1:
             saved_count = 0
             try:
                 for row in in_inputs:
+                    itm = row["item"]
                     w = row["weight"]
                     p = row["price"]
-                    if w > 0:
-                        itm = row["item"]
+                    
+                    if itm != "선택 안함" and w > 0:
                         nt = row["note"]
                         tot = int(w * p)
                         
@@ -196,12 +195,23 @@ with tab1:
                 if saved_count > 0:
                     st.success(f"✅ 총 {saved_count}개 입고 품목 저장 완료!")
                 else:
-                    st.warning("⚠️ 입고 중량이 0kg 초과인 항목이 없습니다.")
+                    st.warning("⚠️ 선택된 품목이 없거나 입고 중량이 0kg 초과인 항목이 없습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
+    # 🔍 최근 8건 실시간 저장 검증 표
+    st.markdown("---")
+    st.markdown("##### 🔍 구글 시트 실시간 저장 결과 (최근 8건)")
+    try:
+        all_rec = sheet.get_all_records()
+        if all_rec:
+            recent_in_df = pd.DataFrame(all_rec).tail(8)
+            st.dataframe(recent_in_df, use_container_width=True)
+    except Exception as e:
+        st.caption("최근 기록 조회 중...")
+
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록 (다중)
+# TAB 2: 출고(사용) 등록 (최근 8건 실시간 확인)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록")
@@ -229,7 +239,7 @@ with tab2:
         for i in range(st.session_state.out_rows):
             c1, c2, c3 = st.columns([2, 2, 3])
             with c1:
-                item = st.selectbox(f"출고품목 #{i+1}", ITEMS, index=i % len(ITEMS), key=f"out_item_{i}", label_visibility="collapsed")
+                item = st.selectbox(f"출고품목 #{i+1}", ITEMS, index=0, key=f"out_item_{i}", label_visibility="collapsed")
             with c2:
                 weight = st.number_input(f"출고중량 #{i+1}", min_value=0.0, step=0.5, format="%.1f", key=f"out_weight_{i}", label_visibility="collapsed")
             with c3:
@@ -243,9 +253,10 @@ with tab2:
             saved_count = 0
             try:
                 for row in out_inputs:
+                    itm = row["item"]
                     w = row["weight"]
-                    if w > 0:
-                        itm = row["item"]
+                    
+                    if itm != "선택 안함" and w > 0:
                         nt = row["note"]
                         
                         prev_stock = get_latest_stock(sheet, itm)
@@ -271,12 +282,23 @@ with tab2:
                 if saved_count > 0:
                     st.success(f"✅ 총 {saved_count}개 출고 품목 저장 완료!")
                 else:
-                    st.warning("⚠️ 출고 중량이 0kg 초과인 항목이 없습니다.")
+                    st.warning("⚠️ 선택된 품목이 없거나 출고 중량이 0kg 초과인 항목이 없습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
+    # 🔍 최근 8건 실시간 저장 검증 표
+    st.markdown("---")
+    st.markdown("##### 🔍 구글 시트 실시간 저장 결과 (최근 8건)")
+    try:
+        all_rec = sheet.get_all_records()
+        if all_rec:
+            recent_out_df = pd.DataFrame(all_rec).tail(8)
+            st.dataframe(recent_out_df, use_container_width=True)
+    except Exception as e:
+        st.caption("최근 기록 조회 중...")
+
 # ---------------------------------------------------------
-# TAB 3: 배합비(Recipe) 기반 자동 출고 등록 (신규 추가!)
+# TAB 3: 배합비(Recipe) 기반 자동 출고 등록
 # ---------------------------------------------------------
 with tab3:
     st.subheader("🥗 배합비(레시피) 기반 자동 출고 등록")
@@ -297,30 +319,27 @@ with tab3:
 
     st.markdown("##### 📋 선택한 제품의 원재료 배합비 기준 사용량 계산")
     
-    # 선택된 제품의 배합비 가져오기
     current_recipe = DEFAULT_RECIPES.get(product_name, {})
     
-    # 배합비 계산 표 생성
     recipe_calc_rows = []
     for item_name, unit_kg in current_recipe.items():
         total_needed_kg = round(unit_kg * prod_qty, 2)
         recipe_calc_rows.append({
             "원료명": item_name,
-            "1개당 필요일 (kg)": unit_kg,
+            "1개당 필요량 (kg)": unit_kg,
             "출고 수량 (개)": prod_qty,
             "총 필요 중량 (kg)": total_needed_kg
         })
 
     recipe_calc_df = pd.DataFrame(recipe_calc_rows)
     
-    # 배합비 및 계산 결과 편집 데이터프레임
     edited_recipe_df = st.data_editor(
         recipe_calc_df,
         use_container_width=True,
         num_rows="dynamic",
         column_config={
-            "원료명": st.column_config.SelectboxColumn("원료명", options=ITEMS, required=True),
-            "1개당 필요일 (kg)": st.column_config.NumberColumn("1개당 필요량 (kg)", format="%.3f"),
+            "원료명": st.column_config.SelectboxColumn("원료명", options=RAW_ITEMS, required=True),
+            "1개당 필요량 (kg)": st.column_config.NumberColumn("1개당 필요량 (kg)", format="%.3f"),
             "출고 수량 (개)": st.column_config.NumberColumn("수량 (개)", disabled=True),
             "총 필요 중량 (kg)": st.column_config.NumberColumn("총 필요 중량 (kg)", format="%.2f")
         }
@@ -333,7 +352,7 @@ with tab3:
                 itm = row["원료명"]
                 total_w = pd.to_numeric(row["총 필요 중량 (kg)"], errors='coerce') or 0
                 
-                if total_w > 0:
+                if itm and itm != "선택 안함" and total_w > 0:
                     prev_stock = get_latest_stock(sheet, itm)
                     day_stock = prev_stock - total_w
                     
@@ -374,7 +393,7 @@ with tab4:
         
         with col1:
             record_date = st.date_input("발생일자", value=datetime.today(), key="loss_date")
-            item = st.selectbox("원료명", ITEMS, key="loss_item")
+            item = st.selectbox("원료명", RAW_ITEMS, key="loss_item")
 
         with col2:
             loss_weight = st.number_input("로스 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="loss_weight")
@@ -542,7 +561,7 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 수불부 (날짜 오름차순 정렬)
+# TAB 6: 수불부
 # ---------------------------------------------------------
 with tab6:
     st.subheader("📊 야채 원재료 수불부 (재고 정산)")
@@ -575,7 +594,7 @@ with tab6:
             ].copy()
 
             summary_rows = []
-            for item in ITEMS:
+            for item in RAW_ITEMS:
                 prior_item = prior_df[prior_df["원료명"] == item]
                 prev_stock = prior_item.iloc[-1]["당일재고"] if not prior_item.empty else 0
                 
