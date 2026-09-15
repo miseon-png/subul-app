@@ -65,62 +65,99 @@ except Exception as e:
     st.error(f"구글 시트 연동 실패: {e}")
     st.stop()
 
-tab1, tab2, tab3 = st.tabs(["📝 입출고 입력", "📅 기간별 입고 리스트", "📊 전체 내역 조회"])
+# 탭 구조를 [입고 입력] / [출고 입력] / [기간별 입고 리스트] / [전체 내역] 으로 분리
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📥 입고 등록", 
+    "📤 출고 등록", 
+    "📅 기간별 입고 리스트", 
+    "📊 전체 내역 조회"
+])
 
 # ---------------------------------------------------------
-# TAB 1: 데이터 입력 (출고 시 단가 제거)
+# TAB 1: 입고 전용 입력 폼
 # ---------------------------------------------------------
 with tab1:
-    st.subheader("신규 입출고 등록")
+    st.subheader("📥 입고 데이터 등록")
     
-    with st.form("inventory_form", clear_on_submit=True):
+    with st.form("inbound_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
         with col1:
-            record_date = st.date_input("날짜", value=datetime.today())
-            transaction_type = st.radio("구분", ["입고", "출고"], horizontal=True)
-            item = st.selectbox("품목명", ITEMS)
+            record_date = st.date_input("입고 날짜", value=datetime.today(), key="in_date")
+            item = st.selectbox("품목명", ITEMS, key="in_item")
+            vendor = st.selectbox("입고 거래처", INBOUND_VENDORS, key="in_vendor")
 
         with col2:
-            if transaction_type == "입고":
-                vendor = st.selectbox("입고 거래처", INBOUND_VENDORS)
-                weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f")
-                unit_price = st.number_input("입고 단가 (원/kg)", min_value=0, step=100)
-                total_price = int(weight * unit_price)
-                st.info(f"💡 **입고 총 금액:** `{total_price:,} 원`")
-            else:
-                vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS)
-                weight = st.number_input("출고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f")
-                unit_price = 0
-                total_price = 0
-                
-            note = st.text_input("비고", placeholder="특이사항 메모")
+            weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="in_weight")
+            unit_price = st.number_input("입고 단가 (원/kg)", min_value=0, step=100, key="in_price")
+            total_price = int(weight * unit_price)
+            st.info(f"💡 **입고 총 금액:** `{total_price:,} 원`")
+            note = st.text_input("비고", placeholder="특이사항 메모", key="in_note")
 
-        submitted = st.form_submit_button("저장하기", use_container_width=True)
+        submitted = st.form_submit_button("입고 저장하기", use_container_width=True)
 
         if submitted:
             row_data = [
                 str(record_date),
-                transaction_type,
+                "입고",
                 item,
                 vendor,
                 weight,
-                unit_price if transaction_type == "입고" else "-",
-                total_price if transaction_type == "입고" else "-",
+                unit_price,
+                total_price,
                 note,
                 datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             ]
             
             try:
                 sheet.append_row(row_data)
-                st.success(f"✅ [{transaction_type}] {item} {weight}kg ({vendor}) 저장 완료!")
+                st.success(f"✅ [입고] {item} {weight}kg ({vendor}) / {total_price:,}원 저장 완료!")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 2: 기간별 입고 리스트
+# TAB 2: 출고 전용 입력 폼 (단가/금액 없음)
 # ---------------------------------------------------------
 with tab2:
+    st.subheader("📤 출고 데이터 등록")
+    
+    with st.form("outbound_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            record_date = st.date_input("출고 날짜", value=datetime.today(), key="out_date")
+            item = st.selectbox("품목명", ITEMS, key="out_item")
+
+        with col2:
+            vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_vendor")
+            weight = st.number_input("출고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="out_weight")
+            note = st.text_input("비고", placeholder="특이사항 메모", key="out_note")
+
+        submitted = st.form_submit_button("출고 저장하기", use_container_width=True)
+
+        if submitted:
+            row_data = [
+                str(record_date),
+                "출고",
+                item,
+                vendor,
+                weight,
+                "-",  # 단가 없음
+                "-",  # 총금액 없음
+                note,
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            ]
+            
+            try:
+                sheet.append_row(row_data)
+                st.success(f"✅ [출고] {item} {weight}kg ({vendor}) 저장 완료!")
+            except Exception as e:
+                st.error(f"저장 실패: {e}")
+
+# ---------------------------------------------------------
+# TAB 3: 기간별 입고 리스트 (정산용)
+# ---------------------------------------------------------
+with tab3:
     st.subheader("📅 기간별 입고 리스트 & 정산")
     
     col_date1, col_date2, col_vendor = st.columns(3)
@@ -136,24 +173,20 @@ with tab2:
         if data:
             df = pd.DataFrame(data)
             
-            # 입고 데이터만 필터링
             inbound_df = df[df["구분"] == "입고"].copy()
             
             if not inbound_df.empty:
-                # 숫자형 타입 변환
                 inbound_df["날짜"] = pd.to_datetime(inbound_df["날짜"]).dt.date
                 inbound_df["중량(kg)"] = pd.to_numeric(inbound_df["중량(kg)"], errors='coerce').fillna(0)
                 inbound_df["단가(원)"] = pd.to_numeric(inbound_df["단가(원)"], errors='coerce').fillna(0)
                 inbound_df["총금액(원)"] = pd.to_numeric(inbound_df["총금액(원)"], errors='coerce').fillna(0)
                 
-                # 날짜 및 거래처 필터 적용
                 filtered_df = inbound_df[(inbound_df["날짜"] >= start_date) & (inbound_df["날짜"] <= end_date)]
                 
                 if selected_vendor != "전체":
                     filtered_df = filtered_df[filtered_df["거래처"] == selected_vendor]
                     
                 if not filtered_df.empty:
-                    # Metrics 요약
                     st.markdown("---")
                     m1, m2, m3 = st.columns(3)
                     m1.metric("총 입고 건수", f"{len(filtered_df):,} 건")
@@ -161,12 +194,10 @@ with tab2:
                     m3.metric("총 입고 금액", f"{filtered_df['총금액(원)'].sum():,} 원")
                     st.markdown("---")
 
-                    # 테이블 출력
                     display_cols = ["날짜", "거래처", "품목", "중량(kg)", "단가(원)", "총금액(원)", "비고"]
                     out_df = filtered_df[display_cols].sort_values(by="날짜", ascending=False)
                     st.dataframe(out_df, use_container_width=True)
 
-                    # 엑셀 다운로드 버튼
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         out_df.to_excel(writer, index=False, sheet_name='입고리스트')
@@ -188,9 +219,9 @@ with tab2:
         st.error(f"데이터 조회 중 오류 발생: {e}")
 
 # ---------------------------------------------------------
-# TAB 3: 전체 내역 조회
+# TAB 4: 전체 내역 조회
 # ---------------------------------------------------------
-with tab3:
+with tab4:
     st.subheader("전체 입출고 데이터")
     if st.button("🔄 새로고침"):
         st.cache_data.clear()
