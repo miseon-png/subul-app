@@ -78,7 +78,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 수불부 (재고 정산)"
 ])
 
-# 해당 품목의 최신 당일재고(전일재고용) 가져오기 보조 함수
+# 최신 당일재고 가져오기
 def get_latest_stock(sheet_obj, item_name):
     all_data = sheet_obj.get_all_records()
     if not all_data:
@@ -91,7 +91,7 @@ def get_latest_stock(sheet_obj, item_name):
     return pd.to_numeric(last_stock, errors='coerce') or 0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록 (단가 & 면세 금액 계산 추가)
+# TAB 1: 입고 등록
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 등록")
@@ -108,7 +108,6 @@ with tab1:
             weight = st.number_input("입고 중량 (kg)", min_value=0.0, step=0.5, format="%.1f")
             unit_price = st.number_input("단가 (원/kg)", min_value=0, step=100)
             
-            # 면세 농산물이므로 부가세 제외, 공급가액 = 총 금액
             total_price = int(weight * unit_price)
             st.info(f"💡 **입고 총 금액 (면세):** `{total_price:,} 원`")
             note = st.text_input("비고", placeholder="특이사항 메모")
@@ -118,9 +117,8 @@ with tab1:
         if submitted:
             try:
                 prev_stock = get_latest_stock(sheet, item)
-                day_stock = prev_stock + weight # 당일재고 = 전일재고 + 당일입고
+                day_stock = prev_stock + weight
                 
-                # 시트1 확장 구조: 일자, 구분, 원료명, 전일재고, 당일입고, 당일사용, 로스, 당일재고, 거래처, 단가, 총금액, 비고
                 row_data = [
                     str(record_date),
                     "야채 원재료",
@@ -231,7 +229,7 @@ with tab3:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: 기간별 입고 정산 (거래처/단가/총금액 조회)
+# TAB 4: 기간별 입고 정산 (요청 양식: 일자, 원료명, 거래처, 단가, 총금액, 비고)
 # ---------------------------------------------------------
 with tab4:
     st.subheader("📅 기간별 야채 입고 정산 내역")
@@ -259,17 +257,15 @@ with tab4:
                     (in_df["일자_parsed"].notnull()) & 
                     (in_df["일자_parsed"] >= s_date_in) & 
                     (in_df["일자_parsed"] <= e_date_in)
-                ]
+                ].copy()
                 
                 if "거래처" in filtered_in.columns and v_filter != "전체":
                     filtered_in = filtered_in[filtered_in["거래처"] == v_filter]
                     
                 if not filtered_in.empty:
-                    # 금액 숫자형 자동 변환
-                    if "총금액" in filtered_in.columns:
-                        filtered_in["총금액_num"] = pd.to_numeric(filtered_in["총금액"], errors='coerce').fillna(0)
-                    else:
-                        filtered_in["총금액_num"] = 0
+                    # 금액 데이터 숫자 변환
+                    filtered_in["총금액_num"] = pd.to_numeric(filtered_in.get("총금액", 0), errors='coerce').fillna(0)
+                    filtered_in["단가_num"] = pd.to_numeric(filtered_in.get("단가", 0), errors='coerce').fillna(0)
 
                     st.markdown("---")
                     m1, m2, m3 = st.columns(3)
@@ -278,15 +274,33 @@ with tab4:
                     m3.metric("총 입고 금액", f"{filtered_in['총금액_num'].sum():,} 원")
                     st.markdown("---")
 
-                    show_cols = [c for c in filtered_in.columns if c not in ["일자_parsed", "총금액_num"]]
-                    st.dataframe(filtered_in[show_cols].sort_values(by="일자", ascending=False), use_container_width=True)
+                    # [요청사항 반영] 표 칼럼 구성: 일자, 원료명, 거래처, 단가, 총금액, 비고
+                    # 시트 컬럼에 없으면 기본값 채우기
+                    for col in ["거래처", "비고"]:
+                        if col not in filtered_in.columns:
+                            filtered_in[col] = "-"
+                    
+                    display_inbound = pd.DataFrame({
+                        "일자": filtered_in["일자"],
+                        "원료명": filtered_in["원료명"],
+                        "거래처": filtered_in["거래처"],
+                        "단가": filtered_in["단가_num"],
+                        "총금액": filtered_in["총금액_num"],
+                        "비고": filtered_in["비고"]
+                    }).sort_values(by="일자", ascending=False)
+
+                    st.write("##### 📋 입고 정산표")
+                    st.dataframe(
+                        display_inbound.style.format({"단가": "{:,.0f}원", "총금액": "{:,.0f}원"}),
+                        use_container_width=True
+                    )
 
                     excel_in = io.BytesIO()
                     with pd.ExcelWriter(excel_in, engine='openpyxl') as writer:
-                        filtered_in[show_cols].to_excel(writer, index=False, sheet_name='입고정산')
+                        display_inbound.to_excel(writer, index=False, sheet_name='입고정산')
                     
                     st.download_button(
-                        label="📥 선택 기간 입고정산 엑셀 다운로드",
+                        label="📥 입고정산표 엑셀 다운로드",
                         data=excel_in.getvalue(),
                         file_name=f"야채입고정산_{s_date_in}_{e_date_in}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -301,10 +315,10 @@ with tab4:
         st.error(f"입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 수불부 (기간별 재고 정산)
+# TAB 5: 수불부 (날짜 포함 일별 상세 + 품목별 집계)
 # ---------------------------------------------------------
 with tab5:
-    st.subheader("📊 야채 원재료 수불부 (기간 정산)")
+    st.subheader("📊 야채 원재료 수불부 (재고 정산)")
     
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 0.8])
     with ctrl1:
@@ -333,10 +347,10 @@ with tab5:
                 (df["일자_parsed"].notnull()) & 
                 (df["일자_parsed"] >= s_date) & 
                 (df["일자_parsed"] <= e_date)
-            ]
+            ].copy()
 
+            # --- A. 품목별 기간 집계 요약 ---
             summary_rows = []
-            
             for item in ITEMS:
                 prior_item = prior_df[prior_df["원료명"] == item]
                 prev_stock = prior_item.iloc[-1]["당일재고"] if not prior_item.empty else 0
@@ -369,17 +383,36 @@ with tab5:
                 m4.metric("현재 당일재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg")
                 st.markdown("---")
 
-                st.write("##### 📋 품목별 수불 집계 요약표")
-                st.dataframe(subul_df, use_container_width=True)
+                # --- B. 일별 상세 수불 이력 표 (날짜 컬럼 포함) ---
+                st.write("##### 📅 선택 기간 일자별 상세 수불 내역")
+                if not period_df.empty:
+                    display_period = pd.DataFrame({
+                        "일자": period_df["일자"],
+                        "원료명": period_df["원료명"],
+                        "전일재고 (kg)": period_df["전일재고"],
+                        "당일입고 (kg)": period_df["당일입고"],
+                        "당일사용 (kg)": period_df["당일사용"],
+                        "로스 (kg)": period_df["로스"],
+                        "당일재고 (kg)": period_df["당일재고"]
+                    }).sort_values(by=["일자", "원료명"], ascending=[False, True])
+                    
+                    st.dataframe(display_period, use_container_width=True)
+                else:
+                    st.info("선택 기간에 발생한 거래 이력이 없습니다.")
+
+                # 품목별 집계 요약표
+                with st.expander("📊 품목별 수불 집계 요약표 보기"):
+                    st.dataframe(subul_df, use_container_width=True)
 
                 b1, b2 = st.columns(2)
                 with b1:
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        subul_df.to_excel(writer, index=False, sheet_name='수불부')
+                        display_period.to_excel(writer, index=False, sheet_name='일별수불이력')
+                        subul_df.to_excel(writer, index=False, sheet_name='품목별집계')
                     
                     st.download_button(
-                        label="📥 수불부 정산표 엑셀 다운로드",
+                        label="📥 수불부(일별내역+집계표) 엑셀 다운로드",
                         data=excel_buffer.getvalue(),
                         file_name=f"야채원재료_수불부_{s_date}_{e_date}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
