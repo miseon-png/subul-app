@@ -97,12 +97,14 @@ except Exception as e:
     st.error(f"구글 시트 로드 실패: {e}")
     st.stop()
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+# 탭 구성: 거래처별 출고 정산 탭 추가
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📥 입고 등록 (다중)", 
     "📤 출고(사용) 등록 (다중)", 
     "🥗 배합비 자동 출고",
     "🚮 로스 등록", 
     "📅 거래처별 입고 정산",
+    "🚚 거래처별 출고 정산",
     "📊 수불부 (재고 정산)"
 ])
 
@@ -119,7 +121,7 @@ def get_latest_stock(sheet_obj, item_name):
     return pd.to_numeric(last_stock, errors='coerce') or 0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록 (최근 8건 실시간 확인)
+# TAB 1: 입고 등록 (다중)
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록")
@@ -199,7 +201,6 @@ with tab1:
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
-    # 🔍 최근 8건 실시간 저장 검증 표
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 저장 결과 (최근 8건)")
     try:
@@ -207,11 +208,11 @@ with tab1:
         if all_rec:
             recent_in_df = pd.DataFrame(all_rec).tail(8)
             st.dataframe(recent_in_df, use_container_width=True)
-    except Exception as e:
+    except Exception:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록 (최근 8건 실시간 확인)
+# TAB 2: 출고(사용) 등록 (다중)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록")
@@ -286,7 +287,6 @@ with tab2:
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
-    # 🔍 최근 8건 실시간 저장 검증 표
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 저장 결과 (최근 8건)")
     try:
@@ -294,7 +294,7 @@ with tab2:
         if all_rec:
             recent_out_df = pd.DataFrame(all_rec).tail(8)
             st.dataframe(recent_out_df, use_container_width=True)
-    except Exception as e:
+    except Exception:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
@@ -561,9 +561,126 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 수불부
+# TAB 6: 거래처별 출고 정산 (신규 추가!)
 # ---------------------------------------------------------
 with tab6:
+    st.subheader("🚚 거래처별 출고 정산 내역")
+    
+    o1, o2, o3 = st.columns(3)
+    with o1:
+        s_date_out = st.date_input("정산 시작일", value=date(2024, 7, 1), key="out_vendor_sdate")
+    with o2:
+        e_date_out = st.date_input("정산 종료일", value=datetime.today(), key="out_vendor_edate")
+    with o3:
+        vo_filter = st.selectbox("출고 거래처 필터", ["전체"] + OUTBOUND_VENDORS, key="out_vendor_filter")
+
+    try:
+        all_records = sheet.get_all_records()
+        if all_records:
+            df = pd.DataFrame(all_records)
+            df["일자_parsed"] = safe_parse_date(df["일자"])
+            
+            # 출고 수량(당일사용)이 0보다 큰 행 필터링
+            df["당일사용"] = pd.to_numeric(df["당일사용"], errors='coerce').fillna(0)
+            out_df = df[df["당일사용"] > 0].copy()
+            
+            if not out_df.empty:
+                filtered_out = out_df[
+                    (out_df["일자_parsed"].notnull()) & 
+                    (out_df["일자_parsed"] >= s_date_out) & 
+                    (out_df["일자_parsed"] <= e_date_out)
+                ].copy()
+                
+                if "거래처" not in filtered_out.columns:
+                    filtered_out["거래처"] = "미지정"
+                else:
+                    filtered_out["거래처"] = filtered_out["거래처"].astype(str).replace(["", "None", "nan"], "미지정")
+                
+                if vo_filter != "전체":
+                    filtered_out = filtered_out[filtered_out["거래처"] == vo_filter]
+                    
+                if not filtered_out.empty:
+                    if "비고" not in filtered_out.columns:
+                        filtered_out["비고"] = "-"
+
+                    period_out_str = f"{s_date_out} ~ {e_date_out}"
+
+                    st.markdown("---")
+                    om1, om2 = st.columns(2)
+                    om1.metric("총 출고 건수", f"{len(filtered_out):,} 건")
+                    om2.metric("총 출고 중량", f"{filtered_out['당일사용'].sum():,.1f} kg")
+                    st.markdown("---")
+
+                    # 거래처별 & 품목별 출고 집계표
+                    out_vendor_summary = filtered_out.groupby(["거래처", "원료명"]).agg(
+                        총출고중량=("당일사용", "sum"),
+                        출고건수=("당일사용", "count"),
+                        비고모음=("비고", lambda x: ", ".join(set(filter(None, map(str, x)))))
+                    ).reset_index()
+
+                    display_out_vendor_df = pd.DataFrame({
+                        "기간": period_out_str,
+                        "거래처": out_vendor_summary["거래처"],
+                        "원료명": out_vendor_summary["원료명"],
+                        "총 출고 중량 (kg)": out_vendor_summary["총출고중량"].round(1),
+                        "출고 건수": out_vendor_summary["출고건수"],
+                        "비고": out_vendor_summary["비고모음"]
+                    })
+
+                    st.write("##### 📋 거래처별 출고 집계표")
+                    st.dataframe(display_out_vendor_df, use_container_width=True)
+
+                    with st.expander("🔍 일자별 개별 출고 상세 내역 보기 (날짜 오름차순)"):
+                        out_detail_df = pd.DataFrame({
+                            "일자": filtered_out["일자"],
+                            "거래처": filtered_out["거래처"],
+                            "원료명": filtered_out["원료명"],
+                            "출고 중량 (kg)": filtered_out["당일사용"],
+                            "비고": filtered_out["비고"]
+                        }).sort_values(by="일자", ascending=True)
+                        
+                        st.dataframe(out_detail_df, use_container_width=True)
+
+                    ob1, ob2 = st.columns(2)
+                    with ob1:
+                        excel_out_vendor = io.BytesIO()
+                        with pd.ExcelWriter(excel_out_vendor, engine='openpyxl') as writer:
+                            display_out_vendor_df.to_excel(writer, index=False, sheet_name='거래처별출고정산')
+                        
+                        st.download_button(
+                            label="📥 거래처별 출고정산표 엑셀 다운로드",
+                            data=excel_out_vendor.getvalue(),
+                            file_name=f"거래처별_출고정산_{s_date_out}_{e_date_out}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    with ob2:
+                        st.components.v1.html("""
+                            <button onclick="window.print()" style="
+                                width: 100%;
+                                height: 38px;
+                                background-color: #4CAF50;
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                font-weight: bold;
+                                cursor: pointer;
+                            ">🖨️ 정산표 인쇄 / PDF 저장</button>
+                        """, height=45)
+                else:
+                    st.info("선택 조건에 해당하는 출고 내역이 없습니다.")
+            else:
+                st.info("출고된 데이터가 없습니다.")
+        else:
+            st.info("등록된 데이터가 없습니다.")
+    except Exception as e:
+        st.error(f"거래처별 출고 정산 조회 오류: {e}")
+
+# ---------------------------------------------------------
+# TAB 7: 수불부
+# ---------------------------------------------------------
+with tab7:
     st.subheader("📊 야채 원재료 수불부 (재고 정산)")
     
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 0.8])
