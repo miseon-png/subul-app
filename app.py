@@ -446,14 +446,13 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산 (해당 월 1일 자동 설정 적용)
+# TAB 5: 거래처별 입고 정산 (월 1일 기본 지정)
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
     
     c1, c2, c3 = st.columns(3)
     with c1:
-        # 해당 월의 1일로 기본값 지정
         s_date_in = st.date_input("정산 시작일", value=get_first_day_of_month(), key="vendor_sdate")
     with c2:
         e_date_in = st.date_input("정산 종료일", value=datetime.today(), key="vendor_edate")
@@ -599,14 +598,13 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 거래처별 출고 정산 (해당 월 1일 자동 설정 적용)
+# TAB 6: 거래처별 출고 정산 (월 1일 기본 지정)
 # ---------------------------------------------------------
 with tab6:
     st.subheader("🚚 거래처별 출고 정산 내역")
     
     o1, o2, o3 = st.columns(3)
     with o1:
-        # 해당 월의 1일로 기본값 지정
         s_date_out = st.date_input("정산 시작일", value=get_first_day_of_month(), key="out_vendor_sdate")
     with o2:
         e_date_out = st.date_input("정산 종료일", value=datetime.today(), key="out_vendor_edate")
@@ -719,14 +717,13 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (해당 월 1일 자동 설정 적용)
+# TAB 7: 수불부 (월 1일 기본 지정)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (재고 정산)")
     
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 0.8])
     with ctrl1:
-        # 해당 월의 1일로 기본값 지정
         s_date = st.date_input("정산 시작일", value=get_first_day_of_month(), key="subul_sdate")
     with ctrl2:
         e_date = st.date_input("정산 종료일", value=datetime.today(), key="subul_edate")
