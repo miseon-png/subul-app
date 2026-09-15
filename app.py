@@ -41,6 +41,28 @@ def init_gspread():
     url = st.secrets["sheets"]["spreadsheet_url"]
     return client.open_by_url(url)
 
+# 빈 헤더/중복 헤더 에러를 방지하는 안전한 시트 로더 함수
+def get_safe_dataframe(sheet_obj):
+    all_values = sheet_obj.get_all_values()
+    if not all_values or len(all_values) <= 1:
+        return pd.DataFrame()
+    
+    headers = all_values[0]
+    data = all_values[1:]
+    
+    # 빈 헤더 이름 자동으로 채우기
+    safe_headers = []
+    for idx, h in enumerate(headers):
+        h_str = str(h).strip()
+        if not h_str:
+            safe_headers.append(f"열_{idx+1}")
+        else:
+            safe_headers.append(h_str)
+            
+    # 데이터프레임 생성
+    df = pd.DataFrame(data, columns=safe_headers)
+    return df
+
 # 안전한 날짜 변환 보조 함수
 def safe_parse_date(series):
     parsed = pd.to_datetime(series, errors='coerce', format='mixed')
@@ -107,12 +129,11 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 수불부 (재고 정산)"
 ])
 
-# 최신 당일재고 가져오기
+# 최신 당일재고 가져오기 (안전 로더 사용)
 def get_latest_stock(sheet_obj, item_name):
-    all_data = sheet_obj.get_all_records()
-    if not all_data:
+    df_all = get_safe_dataframe(sheet_obj)
+    if df_all.empty or "원료명" not in df_all.columns:
         return 0.0
-    df_all = pd.DataFrame(all_data)
     item_df = df_all[df_all["원료명"] == item_name]
     if item_df.empty:
         return 0.0
@@ -121,7 +142,7 @@ def get_latest_stock(sheet_obj, item_name):
     return float(val) if pd.notnull(val) else 0.0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록 (JSON 직렬화 에러 수정완료)
+# TAB 1: 입고 등록 (다중)
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록")
@@ -177,7 +198,6 @@ with tab1:
                         prev_stock = get_latest_stock(sheet, itm)
                         day_stock = round(prev_stock + w, 2)
                         
-                        # 모든 숫자를 파이썬 기본 int / float 타입으로 강제 변환
                         row_data = [
                             str(record_date),
                             "야채 원재료",
@@ -205,15 +225,14 @@ with tab1:
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 저장 결과 (최근 8건)")
     try:
-        all_rec = sheet.get_all_records()
-        if all_rec:
-            recent_in_df = pd.DataFrame(all_rec).tail(8)
-            st.dataframe(recent_in_df, use_container_width=True)
+        recent_in_df = get_safe_dataframe(sheet)
+        if not recent_in_df.empty:
+            st.dataframe(recent_in_df.tail(8), use_container_width=True)
     except Exception:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록
+# TAB 2: 출고(사용) 등록 (다중)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록")
@@ -291,10 +310,9 @@ with tab2:
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 저장 결과 (최근 8건)")
     try:
-        all_rec = sheet.get_all_records()
-        if all_rec:
-            recent_out_df = pd.DataFrame(all_rec).tail(8)
-            st.dataframe(recent_out_df, use_container_width=True)
+        recent_out_df = get_safe_dataframe(sheet)
+        if not recent_out_df.empty:
+            st.dataframe(recent_out_df.tail(8), use_container_width=True)
     except Exception:
         st.caption("최근 기록 조회 중...")
 
@@ -430,7 +448,7 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산
+# TAB 5: 거래처별 입고 정산 (헤더 오동작 완벽 수정)
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
@@ -444,12 +462,11 @@ with tab5:
         v_filter = st.selectbox("거래처 필터", ["전체"] + INBOUND_VENDORS, key="vendor_filter")
 
     try:
-        all_records = sheet.get_all_records()
-        if all_records:
-            df = pd.DataFrame(all_records)
+        df = get_safe_dataframe(sheet)
+        if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
-            df["당일입고"] = pd.to_numeric(df["당일입고"], errors='coerce').fillna(0)
+            df["당일입고"] = pd.to_numeric(df.get("당일입고", 0), errors='coerce').fillna(0)
             in_df = df[df["당일입고"] > 0].copy()
             
             if not in_df.empty:
@@ -578,12 +595,11 @@ with tab6:
         vo_filter = st.selectbox("출고 거래처 필터", ["전체"] + OUTBOUND_VENDORS, key="out_vendor_filter")
 
     try:
-        all_records = sheet.get_all_records()
-        if all_records:
-            df = pd.DataFrame(all_records)
+        df = get_safe_dataframe(sheet)
+        if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
-            df["당일사용"] = pd.to_numeric(df["당일사용"], errors='coerce').fillna(0)
+            df["당일사용"] = pd.to_numeric(df.get("당일사용", 0), errors='coerce').fillna(0)
             out_df = df[df["당일사용"] > 0].copy()
             
             if not out_df.empty:
@@ -695,13 +711,12 @@ with tab7:
             st.cache_data.clear()
 
     try:
-        all_records = sheet.get_all_records()
-        if all_records:
-            df = pd.DataFrame(all_records)
+        df = get_safe_dataframe(sheet)
+        if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
             for col in ["전일재고", "당일입고", "당일사용", "로스", "당일재고"]:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                df[col] = pd.to_numeric(df.get(col, 0), errors='coerce').fillna(0)
 
             prior_df = df[(df["일자_parsed"].notnull()) & (df["일자_parsed"] < s_date)]
             
