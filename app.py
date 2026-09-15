@@ -47,7 +47,7 @@ def safe_parse_date(series):
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 2. 마스터 데이터 정의
+# 2. 마스터 데이터 및 배합비(Recipe) 정의
 # ---------------------------------------------------------
 ITEMS = [
     "카이피라", "프릴아이스", "버터헤드", "레드오크", 
@@ -58,13 +58,33 @@ ITEMS = [
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
+# 기본 배합비 세팅 (제품별 1개당 들어가야 하는 야채 중량 kg)
+DEFAULT_RECIPES = {
+    "스윗밸런스 대표 샐러드": {
+        "카이피라": 0.05,
+        "프릴아이스": 0.03,
+        "양상추": 0.04,
+        "적근대": 0.01
+    },
+    "쿠팡 믹스 샐러드": {
+        "로메인": 0.06,
+        "버터헤드": 0.04,
+        "치커리": 0.02,
+        "당근": 0.01
+    },
+    "나무숲 프리미엄 샐러드": {
+        "레드오크": 0.03,
+        "케일": 0.02,
+        "양배추": 0.03,
+        "적채": 0.02
+    }
+}
+
 # 세션 상태 초기화 (다중 행 제어용)
 if "in_rows" not in st.session_state:
-    st.session_state.in_rows = 4  # 기본 4개 품목 행
+    st.session_state.in_rows = 4
 if "out_rows" not in st.session_state:
-    st.session_state.out_rows = 4 # 기본 4개 품목 행
-if "loss_rows" not in st.session_state:
-    st.session_state.loss_rows = 1
+    st.session_state.out_rows = 4
 
 # ---------------------------------------------------------
 # 3. 메인 화면 구성 및 시트 로드
@@ -78,9 +98,11 @@ except Exception as e:
     st.error(f"구글 시트 로드 실패: {e}")
     st.stop()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📥 입고 등록", 
-    "📤 출고(사용) 등록", 
+# 탭 구성에 [배합비 출고] 탭 추가
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📥 입고 등록 (다중)", 
+    "📤 출고(사용) 등록 (다중)", 
+    "🥗 배합비 자동 출고",
     "🚮 로스 등록", 
     "📅 거래처별 입고 정산",
     "📊 수불부 (재고 정산)"
@@ -99,7 +121,7 @@ def get_latest_stock(sheet_obj, item_name):
     return pd.to_numeric(last_stock, errors='coerce') or 0
 
 # ---------------------------------------------------------
-# TAB 1: 입고 등록 (같은 날 동시 4개 이상 다중 입력)
+# TAB 1: 입고 등록 (다중)
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록")
@@ -116,11 +138,9 @@ with tab1:
 
     st.markdown("---")
     
-    # 동시 입고 입력 폼
     with st.form("multi_inbound_form", clear_on_submit=True):
         in_inputs = []
         
-        # 헤더 표시
         h1, h2, h3, h4 = st.columns([2, 1.5, 1.5, 2])
         h1.caption("**원료명**")
         h2.caption("**입고 중량 (kg)**")
@@ -148,7 +168,7 @@ with tab1:
                 for row in in_inputs:
                     w = row["weight"]
                     p = row["price"]
-                    if w > 0: # 중량이 0보다 큰 건만 저장
+                    if w > 0:
                         itm = row["item"]
                         nt = row["note"]
                         tot = int(w * p)
@@ -181,7 +201,7 @@ with tab1:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록 (같은 날 동시 4개 이상 다중 입력)
+# TAB 2: 출고(사용) 등록 (다중)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록")
@@ -256,9 +276,97 @@ with tab2:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 3: 로스 등록
+# TAB 3: 배합비(Recipe) 기반 자동 출고 등록 (신규 추가!)
 # ---------------------------------------------------------
 with tab3:
+    st.subheader("🥗 배합비(레시피) 기반 자동 출고 등록")
+    
+    col_r1, col_r2, col_r3 = st.columns([1.5, 1.5, 1.5])
+    with col_r1:
+        recipe_date = st.date_input("출고일자", value=datetime.today(), key="recipe_date")
+    with col_r2:
+        recipe_vendor = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="recipe_vendor")
+    with col_r3:
+        product_name = st.selectbox("생산/출고 제품 선택", list(DEFAULT_RECIPES.keys()), key="recipe_product")
+
+    col_q1, col_q2 = st.columns([2, 2])
+    with col_q1:
+        prod_qty = st.number_input("생산/출고 수량 (개)", min_value=1, step=10, value=100, key="recipe_qty")
+    with col_q2:
+        recipe_note = st.text_input("비고", placeholder="예: 1차 생산분 출고", key="recipe_note")
+
+    st.markdown("##### 📋 선택한 제품의 원재료 배합비 기준 사용량 계산")
+    
+    # 선택된 제품의 배합비 가져오기
+    current_recipe = DEFAULT_RECIPES.get(product_name, {})
+    
+    # 배합비 계산 표 생성
+    recipe_calc_rows = []
+    for item_name, unit_kg in current_recipe.items():
+        total_needed_kg = round(unit_kg * prod_qty, 2)
+        recipe_calc_rows.append({
+            "원료명": item_name,
+            "1개당 필요일 (kg)": unit_kg,
+            "출고 수량 (개)": prod_qty,
+            "총 필요 중량 (kg)": total_needed_kg
+        })
+
+    recipe_calc_df = pd.DataFrame(recipe_calc_rows)
+    
+    # 배합비 및 계산 결과 편집 데이터프레임
+    edited_recipe_df = st.data_editor(
+        recipe_calc_df,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "원료명": st.column_config.SelectboxColumn("원료명", options=ITEMS, required=True),
+            "1개당 필요일 (kg)": st.column_config.NumberColumn("1개당 필요량 (kg)", format="%.3f"),
+            "출고 수량 (개)": st.column_config.NumberColumn("수량 (개)", disabled=True),
+            "총 필요 중량 (kg)": st.column_config.NumberColumn("총 필요 중량 (kg)", format="%.2f")
+        }
+    )
+
+    if st.button("🚀 계산된 배합비 원재료 일괄 출고 저장", use_container_width=True, type="primary"):
+        saved_count = 0
+        try:
+            for idx, row in edited_recipe_df.iterrows():
+                itm = row["원료명"]
+                total_w = pd.to_numeric(row["총 필요 중량 (kg)"], errors='coerce') or 0
+                
+                if total_w > 0:
+                    prev_stock = get_latest_stock(sheet, itm)
+                    day_stock = prev_stock - total_w
+                    
+                    full_note = f"[{product_name} {prod_qty}개 배합출고] {recipe_note}".strip()
+                    
+                    row_data = [
+                        str(recipe_date),
+                        "야채 원재료",
+                        itm,
+                        prev_stock,
+                        0,
+                        total_w,
+                        0,
+                        day_stock,
+                        recipe_vendor,
+                        "-",
+                        "-",
+                        full_note
+                    ]
+                    sheet.append_row(row_data)
+                    saved_count += 1
+            
+            if saved_count > 0:
+                st.success(f"✅ [{product_name} {prod_qty}개] 배합비에 따른 야채 원재료 {saved_count}종 출고 저장 완료!")
+            else:
+                st.warning("⚠️ 출고 중량이 0kg 초과인 원재료가 없습니다.")
+        except Exception as e:
+            st.error(f"배합비 출고 저장 실패: {e}")
+
+# ---------------------------------------------------------
+# TAB 4: 로스 등록
+# ---------------------------------------------------------
+with tab4:
     st.subheader("🚮 로스(폐기/손실) 등록")
     
     with st.form("loss_form", clear_on_submit=True):
@@ -300,9 +408,9 @@ with tab3:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 4: 거래처별 입고 정산 (인쇄 기능 포함)
+# TAB 5: 거래처별 입고 정산
 # ---------------------------------------------------------
-with tab4:
+with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
     
     c1, c2, c3 = st.columns(3)
@@ -434,9 +542,9 @@ with tab4:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 수불부 (날짜 오름차순 정렬)
+# TAB 6: 수불부 (날짜 오름차순 정렬)
 # ---------------------------------------------------------
-with tab5:
+with tab6:
     st.subheader("📊 야채 원재료 수불부 (재고 정산)")
     
     ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 0.8])
