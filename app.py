@@ -79,7 +79,7 @@ ITEMS = ["선택 안함"] + RAW_ITEMS
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
-# 요청 반영: 최신 자동 배합비 레시피
+# 자동 배합비 레시피
 DEFAULT_RECIPES = {
     "스윗밸런스 브런치빈 1kg": {
         "양상추": 0.6,
@@ -310,7 +310,7 @@ with tab2:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 3: 배합비(Recipe) 기반 자동 출고 등록 (최신 레시피 반영)
+# TAB 3: 배합비(Recipe) 기반 자동 출고 등록
 # ---------------------------------------------------------
 with tab3:
     st.subheader("🥗 배합비(레시피) 기반 자동 출고 등록")
@@ -441,7 +441,7 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산 (입고 중량 추가 및 파싱 수정)
+# TAB 5: 거래처별 입고 정산 (오류 수정)
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
@@ -459,8 +459,13 @@ with tab5:
         if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
-            # 숫자 데이터 안전하게 정리 (쉼표 및 무효 문자 제거)
-            df["당일입고"] = pd.to_numeric(df.get("당일입고", 0).astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            # 당일입고 안전 변환
+            if "당일입고" in df.columns:
+                s_in = df["당일입고"].astype(str).str.replace(',', '')
+                df["당일입고"] = pd.to_numeric(s_in, errors='coerce').fillna(0)
+            else:
+                df["당일입고"] = 0.0
+
             in_df = df[df["당일입고"] > 0].copy()
             
             if not in_df.empty:
@@ -479,8 +484,18 @@ with tab5:
                     filtered_in = filtered_in[filtered_in["거래처"] == v_filter]
                     
                 if not filtered_in.empty:
-                    filtered_in["총금액_num"] = pd.to_numeric(filtered_in.get("총금액", 0).astype(str).str.replace(',', ''), errors='coerce').fillna(0)
-                    filtered_in["단가_num"] = pd.to_numeric(filtered_in.get("단가", 0).astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                    # 안전한 총금액/단가 변환 (int64/astype 오류 방지)
+                    if "총금액" in filtered_in.columns:
+                        s_tot = filtered_in["총금액"].astype(str).str.replace(',', '')
+                        filtered_in["총금액_num"] = pd.to_numeric(s_tot, errors='coerce').fillna(0)
+                    else:
+                        filtered_in["총금액_num"] = 0.0
+
+                    if "단가" in filtered_in.columns:
+                        s_price = filtered_in["단가"].astype(str).str.replace(',', '')
+                        filtered_in["단가_num"] = pd.to_numeric(s_price, errors='coerce').fillna(0)
+                    else:
+                        filtered_in["단가_num"] = 0.0
 
                     if "비고" not in filtered_in.columns:
                         filtered_in["비고"] = "-"
@@ -501,7 +516,6 @@ with tab5:
                         비고모음=("비고", lambda x: ", ".join(set(filter(None, map(str, x)))))
                     ).reset_index()
 
-                    # [요청 반영] 표 컬럼에 입고 중량(kg) 명시적 추가
                     display_vendor_df = pd.DataFrame({
                         "기간": period_str,
                         "거래처": vendor_summary["거래처"],
@@ -589,7 +603,12 @@ with tab6:
         if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
-            df["당일사용"] = pd.to_numeric(df.get("당일사용", 0).astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+            if "당일사용" in df.columns:
+                s_use = df["당일사용"].astype(str).str.replace(',', '')
+                df["당일사용"] = pd.to_numeric(s_use, errors='coerce').fillna(0)
+            else:
+                df["당일사용"] = 0.0
+
             out_df = df[df["당일사용"] > 0].copy()
             
             if not out_df.empty:
@@ -706,7 +725,11 @@ with tab7:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             
             for col in ["전일재고", "당일입고", "당일사용", "로스", "당일재고"]:
-                df[col] = pd.to_numeric(df.get(col, 0).astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                if col in df.columns:
+                    s_val = df[col].astype(str).str.replace(',', '')
+                    df[col] = pd.to_numeric(s_val, errors='coerce').fillna(0)
+                else:
+                    df[col] = 0.0
 
             prior_df = df[(df["일자_parsed"].notnull()) & (df["일자_parsed"] < s_date)]
             
