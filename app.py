@@ -60,36 +60,79 @@ def safe_parse_date(series):
     parsed = pd.to_datetime(series, errors='coerce', format='mixed')
     return parsed.dt.date
 
-# 집계표 전용 브라우저 인쇄 버튼 컴포넌트
-def render_summary_print_button(period_title=""):
-    st.components.v1.html(f"""
-        <script>
-            function printSummaryOnly() {{
-                var doc = window.parent.document;
-                
-                // 기존 인쇄 전용 스타일 제거
-                var oldStyle = doc.getElementById('print-summary-style');
-                if (oldStyle) oldStyle.remove();
+# ---------------------------------------------------------
+# 수불부 전체 보고서(집계표 + 일자별 상세내역) 인쇄 팝업
+# ---------------------------------------------------------
+def render_full_subul_print(df_summary, df_detail, period_str):
+    tot_prev = df_summary['전일재고 (kg)'].sum()
+    tot_in = df_summary['당일입고 (kg)'].sum()
+    tot_use = df_summary['당일사용 (kg)'].sum()
+    tot_day = df_summary['당일재고 (kg)'].sum()
+    
+    summary_html = df_summary.to_html(index=False, classes="print-table")
+    detail_html = df_detail.to_html(index=False, classes="print-table") if df_detail is not None and not df_detail.empty else "<p>상세 내역이 없습니다.</p>"
+    
+    print_doc_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>야채 원재료 수불 정산 보고서</title>
+        <style>
+            body {{ font-family: 'Malgun Gothic', sans-serif; padding: 20px; color: #333; line-height: 1.4; }}
+            h2 {{ margin-bottom: 5px; color: #1e3a8a; }}
+            h3 {{ margin-top: 25px; margin-bottom: 8px; color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 4px; }}
+            .period {{ font-size: 14px; color: #555; margin-bottom: 20px; font-weight: bold; }}
+            .metrics {{ display: flex; gap: 12px; margin-bottom: 20px; }}
+            .m-box {{ flex: 1; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; text-align: center; background-color: #f8fafc; }}
+            .m-box .title {{ font-size: 12px; color: #64748b; }}
+            .m-box .val {{ font-size: 15px; font-weight: bold; margin-top: 4px; color: #0f172a; }}
+            .print-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; page-break-inside: auto; }}
+            .print-table tr {{ page-break-inside: avoid; page-break-after: auto; }}
+            .print-table th {{ background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 6px; text-align: center; font-weight: bold; }}
+            .print-table td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: center; }}
+            @media print {{
+                body {{ padding: 0; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <h2>📊 야채 원재료 수불 정산 보고서</h2>
+        <div class="period">🗓️ 정산 기간: {period_str}</div>
+        
+        <div class="metrics">
+            <div class="m-box"><div class="title">총 전일재고</div><div class="val">{tot_prev:,.1f} kg</div></div>
+            <div class="m-box"><div class="title">총 입고량</div><div class="val">{tot_in:,.1f} kg</div></div>
+            <div class="m-box"><div class="title">총 사용량</div><div class="val">{tot_use:,.1f} kg</div></div>
+            <div class="m-box"><div class="title">현재 당일재고</div><div class="val">{tot_day:,.1f} kg</div></div>
+        </div>
 
-                // 집계표만 출력하고 나머지는 감추는 CSS 주입
-                var style = doc.createElement('style');
-                style.id = 'print-summary-style';
-                style.innerHTML = `
-                    @media print {{
-                        header, footer, button, .stButton, [data-testid="stSidebar"], [data-testid="stHeader"],
-                        .no-print, [data-testid="stExpander"] {{
-                            display: none !important;
-                        }}
-                        .printable-summary {{
-                            display: block !important;
-                        }}
-                    }}
-                `;
-                doc.head.appendChild(style);
-                window.parent.print();
+        <h3>1. 품목별 수불 집계 요약표</h3>
+        {summary_html}
+
+        <h3 style="page-break-before: auto;">2. 일자별 개별 수불 상세 내역</h3>
+        {detail_html}
+
+        <script>
+            window.onload = function() {{
+                window.print();
             }}
         </script>
-        <button onclick="printSummaryOnly()" style="
+    </body>
+    </html>
+    """
+    
+    escaped_html = print_doc_html.replace('`', '\\`').replace('${', '\\${')
+    
+    st.components.v1.html(f"""
+        <script>
+            function openPrintWindow() {{
+                var printWindow = window.open('', '_blank', 'width=900,height=900');
+                printWindow.document.write(`{escaped_html}`);
+                printWindow.document.close();
+            }}
+        </script>
+        <button onclick="openPrintWindow()" style="
             width: 100%;
             height: 38px;
             background-color: #4CAF50;
@@ -99,7 +142,48 @@ def render_summary_print_button(period_title=""):
             font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-        ">🖨️ 집계 요약표만 인쇄 / PDF 저장</button>
+        ">🖨️ 수불부 전체 내역(집계 + 일자별 상세) 인쇄 / PDF 저장</button>
+    """, height=45)
+
+# 일반 집계표 인쇄 보조 함수 (거래처 정산용)
+def render_clean_summary_print(df_summary, period_str):
+    table_html = df_summary.to_html(index=False, classes="print-table")
+    print_doc_html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>거래처 정산 집계표</title>
+        <style>
+            body {{ font-family: 'Malgun Gothic', sans-serif; padding: 20px; color: #333; }}
+            h2 {{ margin-bottom: 5px; color: #1e3a8a; }}
+            .period {{ font-size: 14px; color: #555; margin-bottom: 20px; font-weight: bold; }}
+            .print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }}
+            .print-table th {{ background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px; text-align: center; font-weight: bold; }}
+            .print-table td {{ border: 1px solid #cbd5e1; padding: 7px; text-align: center; }}
+            @media print {{ body {{ padding: 0; }} }}
+        </style>
+    </head>
+    <body>
+        <h2>📋 거래처 정산 집계표</h2>
+        <div class="period">🗓️ 정산 기간: {period_str}</div>
+        {table_html}
+        <script>window.onload = function() {{ window.print(); }}</script>
+    </body>
+    </html>
+    """
+    escaped_html = print_doc_html.replace('`', '\\`').replace('${', '\\${')
+    st.components.v1.html(f"""
+        <script>
+            function openPrintWindow() {{
+                var printWindow = window.open('', '_blank', 'width=850,height=900');
+                printWindow.document.write(`{escaped_html}`);
+                printWindow.document.close();
+            }}
+        </script>
+        <button onclick="openPrintWindow()" style="
+            width: 100%; height: 38px; background-color: #4CAF50; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer;
+        ">🖨️ 정산 집계표 인쇄 / PDF 저장</button>
     """, height=45)
 
 # ---------------------------------------------------------
@@ -533,14 +617,14 @@ with tab5:
                             detail_df.to_excel(writer, index=False, sheet_name='입고정산_상세내역')
                         
                         st.download_button(
-                            label="📥 거래처별 입고정산표 엑셀 다운로드 (화면 표시용)",
+                            label="📥 거래처별 입고정산표 엑셀 다운로드",
                             data=excel_vendor.getvalue(),
                             file_name=f"거래처별_입고정산_{s_date_in}_{e_date_in}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
                     with b2:
-                        render_summary_print_button(period_str)
+                        render_clean_summary_print(display_vendor_df, period_str)
                 else:
                     st.info("선택 조건에 해당하는 입고 내역이 없습니다.")
             else:
@@ -634,14 +718,14 @@ with tab6:
                             out_detail_df.to_excel(writer, index=False, sheet_name='출고정산_상세내역')
                         
                         st.download_button(
-                            label="📥 거래처별 출고정산표 엑셀 다운로드 (화면 표시용)",
+                            label="📥 거래처별 출고정산표 엑셀 다운로드",
                             data=excel_out_vendor.getvalue(),
                             file_name=f"거래처별_출고정산_{s_date_out}_{e_date_out}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
                     with ob2:
-                        render_summary_print_button(period_out_str)
+                        render_clean_summary_print(display_out_vendor_df, period_out_str)
                 else:
                     st.info("선택 조건에 해당하는 출고 내역이 없습니다.")
             else:
@@ -652,7 +736,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (집계 요약표 전용 인쇄)
+# TAB 7: 수불부 (전체 보고서 인쇄: 집계표 + 일자별 상세 내역 포함)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -753,7 +837,6 @@ with tab7:
 
                 period_title_str = f"{s_date} ~ {e_date}"
 
-                # --- [인쇄 대상 지정 구역 시작] ---
                 st.markdown(f"#### 📊 원재료 수불 집계 요약표 `[정산 기간: {period_title_str}]`")
                 
                 st.markdown("---")
@@ -764,11 +847,9 @@ with tab7:
                 m4.metric("현재 당일재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg")
                 st.markdown("---")
 
-                # 품목별 집계 요약표 화면 표시
                 st.dataframe(subul_df, use_container_width=True)
-                # --- [인쇄 대상 지정 구역 끝] ---
 
-                # 일자별 상세 내역 (아코디언 접기 형태)
+                display_period = pd.DataFrame()
                 if detail_history_rows:
                     display_period = pd.DataFrame(detail_history_rows)
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
@@ -787,7 +868,7 @@ with tab7:
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
                         subul_df.to_excel(writer, index=False, sheet_name='품목별집계')
-                        if detail_history_rows:
+                        if not display_period.empty:
                             display_period.to_excel(writer, index=False, sheet_name='일별수불이력')
                     
                     st.download_button(
@@ -798,8 +879,8 @@ with tab7:
                         use_container_width=True
                     )
                 with b2:
-                    # 상단 집계 요약표만 인쇄하는 전용 버튼 실행
-                    render_summary_print_button(period_title_str)
+                    # 집계 요약표 + 일자별 상세 내역을 전체 인쇄하는 팝업 실행
+                    render_full_subul_print(subul_df, display_period, period_title_str)
             else:
                 st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
         else:
