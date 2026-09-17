@@ -66,7 +66,6 @@ def safe_parse_date(series):
 # ---------------------------------------------------------
 # 2. 마스터 데이터 및 배합비 레시피 정의
 # ---------------------------------------------------------
-# 요청하신 출력 지정 순서
 RAW_ITEMS = [
     "카이피라", "프릴아이스", "버터헤드", "레드오크", 
     "로메인", "치커리", "적근대", "케일", 
@@ -626,7 +625,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (지정 품목 순서로 출력 완벽 정렬)
+# TAB 7: 수불부 (같은 날 입고 우선 정렬 및 연산 보정)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -647,8 +646,12 @@ with tab7:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             df["수량_num"] = pd.to_numeric(df["수량(kg)"].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            # 날짜순 정렬
-            df = df.sort_values(by="일자_parsed", ascending=True)
+            # 동일 일자 내 정렬 우선순위 정의 (입고 ➔ 로스 ➔ 출고)
+            type_order = pd.CategoricalDtype(categories=["입고", "로스", "출고"], ordered=True)
+            df["구분_cat"] = df["구분"].astype(type_order)
+            
+            # 날짜 오름차순 ➔ 동일 일자 내 입고 우선 정렬
+            df = df.sort_values(by=["일자_parsed", "구분_cat"], ascending=[True, True])
 
             summary_rows = []
             detail_history_rows = []
@@ -687,7 +690,7 @@ with tab7:
                         "당일재고 (kg)": round(curr_stock, 1)
                     })
 
-                # 일자별 상세 수불 흐름 계산
+                # 일자별 상세 수불 흐름 계산 (입고가 먼저 계산됨)
                 running_stock = init_stock
                 for idx, row in period_item.iterrows():
                     rec_in = row["수량_num"] if row["구분"] == "입고" else 0.0
@@ -732,16 +735,18 @@ with tab7:
                 m4.metric("현재 당일재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg")
                 st.markdown("---")
 
-                st.write("##### 📅 선택 기간 일자별 상세 수불 내역 (날짜 오름차순 ➔ 지정 품목순 정렬)")
+                st.write("##### 📅 선택 기간 일자별 상세 수불 내역 (날짜 오름차순 ➔ 입고 우선 ➔ 지정 품목순 정렬)")
                 if detail_history_rows:
                     display_period = pd.DataFrame(detail_history_rows)
                     
-                    # 상세 수불 내역 지정순 정렬 (날짜 오름차순 -> 품목 지정순)
+                    # 상세 수불 내역 정렬 (날짜 오름차순 ➔ 입고 우선 ➔ 품목 지정순)
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
+                    display_period["구분_cat"] = display_period["구분"].astype(type_order)
+                    
                     display_period = display_period.sort_values(
-                        by=["일자", "원료명_cat"], 
-                        ascending=[True, True]
-                    ).drop(columns=["원료명_cat"])
+                        by=["일자", "구분_cat", "원료명_cat"], 
+                        ascending=[True, True, True]
+                    ).drop(columns=["원료명_cat", "구분_cat"])
                     
                     st.dataframe(display_period, use_container_width=True)
                 else:
