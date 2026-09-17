@@ -61,7 +61,7 @@ def safe_parse_date(series):
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 문자열 노출 오류 차단용 안전 인쇄 컴포넌트
+# 안전 인쇄 컴포넌트 (레이아웃 깨짐 완벽 보정)
 # ---------------------------------------------------------
 def render_full_subul_print(df_summary, df_detail, period_str):
     tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
@@ -72,20 +72,34 @@ def render_full_subul_print(df_summary, df_detail, period_str):
     summary_html = df_summary.to_html(index=False, classes="print-table")
     detail_html = df_detail.to_html(index=False, classes="print-table") if df_detail is not None and not df_detail.empty else "<p>상세 내역이 없습니다.</p>"
     
-    # 텍스트 깨짐 원인이 되는 백틱 대신 표준 따옴표 구조 적용
     btn_html = f"""
     <div style="width:100%;">
         <button onclick="
-            var pWin = window.open('', '_blank', 'width=900,height=900');
-            pWin.document.write('<html><head><title>수불 정산 보고서</title>');
-            pWin.document.write('<style>body{{font-family:sans-serif;padding:20px;}} h2{{color:#1e3a8a;}} .metrics{{display:flex;gap:10px;margin:15px 0;}} .m-box{{flex:1;border:1px solid #ccc;padding:8px;text-align:center;background:#f8fafc;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background:#f1f5f9;}}</style>');
-            pWin.document.write('</head><body>');
+            var pWin = window.open('', '_blank', 'width=950,height=900');
+            pWin.document.write('<html><head><title>야채 원재료 수불 정산 보고서</title>');
+            pWin.document.write('<style>');
+            pWin.document.write('body {{ font-family: sans-serif; padding: 20px; color: #333; }}');
+            pWin.document.write('h2 {{ color: #1e3a8a; margin-bottom: 5px; }}');
+            pWin.document.write('.period {{ font-size: 14px; color: #475569; margin-bottom: 15px; }}');
+            pWin.document.write('.metric-table {{ width: 100%; margin-bottom: 20px; border-spacing: 10px; border-collapse: separate; }}');
+            pWin.document.write('.metric-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; text-align: center; }}');
+            pWin.document.write('.metric-title {{ font-size: 12px; color: #64748b; font-weight: bold; }}');
+            pWin.document.write('.metric-val {{ font-size: 16px; color: #0f172a; font-weight: bold; margin-top: 4px; }}');
+            pWin.document.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }}');
+            pWin.document.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 6px 8px; text-align: center; }}');
+            pWin.document.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
+            pWin.document.write('</style></head><body>');
             pWin.document.write('<h2>📊 야채 원재료 수불 정산 보고서</h2>');
-            pWin.document.write('<div><b>🗓️ 정산 기간:</b> {period_str}</div>');
-            pWin.document.write('<div class=\"metrics\"><div class=\"m-box\">전일재고<br><b>{tot_prev:,.1f} kg</b></div><div class=\"m-box\">총 입고량<br><b>{tot_in:,.1f} kg</b></div><div class=\"m-box\">총 사용량<br><b>{tot_use:,.1f} kg</b></div><div class=\"m-box\">당일재고<br><b>{tot_day:,.1f} kg</b></div></div>');
+            pWin.document.write('<div class=\"period\"><b>🗓️ 정산 기간:</b> {period_str}</div>');
+            pWin.document.write('<table class=\"metric-table\"><tr>');
+            pWin.document.write('<td class=\"metric-card\"><div class=\"metric-title\">총 전일재고</div><div class=\"metric-val\">{tot_prev:,.1f} kg</div></td>');
+            pWin.document.write('<td class=\"metric-card\"><div class=\"metric-title\">총 입고량</div><div class=\"metric-val\">{tot_in:,.1f} kg</div></td>');
+            pWin.document.write('<td class=\"metric-card\"><div class=\"metric-title\">총 사용량</div><div class=\"metric-val\">{tot_use:,.1f} kg</div></td>');
+            pWin.document.write('<td class=\"metric-card\"><div class=\"metric-title\">현재 당일재고</div><div class=\"metric-val\">{tot_day:,.1f} kg</div></td>');
+            pWin.document.write('</tr></table>');
             pWin.document.write('<h3>1. 품목별 수불 집계 요약표</h3>');
             pWin.document.write('{summary_html.replace(chr(10), " ")}');
-            pWin.document.write('<h3>2. 일자별 개별 수불 상세 내역</h3>');
+            pWin.document.write('<h3 style=\"page-break-before: auto; margin-top: 25px;\">2. 일자별 개별 수불 상세 내역</h3>');
             pWin.document.write('{detail_html.replace(chr(10), " ")}');
             pWin.document.write('</body></html>');
             pWin.document.close();
