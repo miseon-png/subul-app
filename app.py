@@ -398,18 +398,20 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산
+# TAB 5: 거래처별 입고 정산 (품목 필터 추가)
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
     
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         s_date_in = st.date_input("정산 시작일", value=get_first_day_of_month(), key="vendor_sdate")
     with c2:
         e_date_in = st.date_input("정산 종료일", value=datetime.today(), key="vendor_edate")
     with c3:
         v_filter = st.selectbox("거래처 필터", ["전체"] + INBOUND_VENDORS, key="vendor_filter")
+    with c4:
+        item_filter_in = st.selectbox("품목 필터", ["전체"] + RAW_ITEMS, key="vendor_item_filter")
 
     try:
         df = get_safe_dataframe(sheet)
@@ -427,6 +429,9 @@ with tab5:
                 
                 if v_filter != "전체":
                     filtered_in = filtered_in[filtered_in["거래처"] == v_filter]
+                    
+                if item_filter_in != "전체":
+                    filtered_in = filtered_in[filtered_in["원료명"] == item_filter_in]
                     
                 if not filtered_in.empty:
                     filtered_in["수량_num"] = pd.to_numeric(filtered_in["수량(kg)"].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
@@ -518,18 +523,20 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 거래처별 출고 정산
+# TAB 6: 거래처별 출고 정산 (품목 필터 추가)
 # ---------------------------------------------------------
 with tab6:
     st.subheader("🚚 거래처별 출고 정산 내역")
     
-    o1, o2, o3 = st.columns(3)
+    o1, o2, o3, o4 = st.columns(4)
     with o1:
         s_date_out = st.date_input("정산 시작일", value=get_first_day_of_month(), key="out_vendor_sdate")
     with o2:
         e_date_out = st.date_input("정산 종료일", value=datetime.today(), key="out_vendor_edate")
     with o3:
         vo_filter = st.selectbox("출고 거래처 필터", ["전체"] + OUTBOUND_VENDORS, key="out_vendor_filter")
+    with o4:
+        item_filter_out = st.selectbox("품목 필터", ["전체"] + RAW_ITEMS, key="out_vendor_item_filter")
 
     try:
         df = get_safe_dataframe(sheet)
@@ -547,6 +554,9 @@ with tab6:
                 
                 if vo_filter != "전체":
                     filtered_out = filtered_out[filtered_out["거래처"] == vo_filter]
+                    
+                if item_filter_out != "전체":
+                    filtered_out = filtered_out[filtered_out["원료명"] == item_filter_out]
                     
                 if not filtered_out.empty:
                     filtered_out["수량_num"] = pd.to_numeric(filtered_out["수량(kg)"].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
@@ -625,17 +635,19 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (우선순위: 날짜 ➔ 품목 지정순 ➔ 입고 우선 연산 및 출력)
+# TAB 7: 수불부 (품목 필터 추가)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
     
-    ctrl1, ctrl2, ctrl3 = st.columns([1, 1, 0.8])
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 0.8])
     with ctrl1:
         s_date = st.date_input("정산 시작일", value=get_first_day_of_month(), key="subul_sdate")
     with ctrl2:
         e_date = st.date_input("정산 종료일", value=datetime.today(), key="subul_edate")
     with ctrl3:
+        subul_item_filter = st.selectbox("품목 필터", ["전체"] + RAW_ITEMS, key="subul_item_filter")
+    with ctrl4:
         st.write(" ")
         if st.button("🔄 수불부 새로고침", use_container_width=True):
             st.cache_data.clear()
@@ -659,8 +671,11 @@ with tab7:
             summary_rows = []
             detail_history_rows = []
 
-            # RAW_ITEMS 지정 품목 순서별 독립 계산
-            for item in RAW_ITEMS:
+            # 품목 필터링 적용할 대상 리스트 선정
+            target_items = [subul_item_filter] if subul_item_filter != "전체" else RAW_ITEMS
+
+            # 대상 품목 순회 계산
+            for item in target_items:
                 item_df = df[df["원료명"] == item].copy()
                 
                 # 시작일 이전 이월재고 계산
@@ -696,7 +711,7 @@ with tab7:
                         "당일재고 (kg)": round(curr_stock, 1)
                     })
 
-                # 일자별 상세 수불 누적 연산 (입고가 출고보다 먼저 연산됨)
+                # 일자별 상세 수불 누적 연산
                 running_stock = init_stock
                 for idx, row in period_item.iterrows():
                     rec_in = row["수량_num"] if row["구분"] == "입고" else 0.0
@@ -752,9 +767,9 @@ with tab7:
                     
                     st.dataframe(display_period, use_container_width=True)
                 else:
-                    st.info("선택 기간에 발생한 거래 이력이 없습니다.")
+                    st.info("선택 조건에 해당하는 거래 이력이 없습니다.")
 
-                with st.expander("📊 품목별 수불 집계 요약표 보기 (지정 품목 순)"):
+                with st.expander("📊 품목별 수불 집계 요약표 보기"):
                     st.dataframe(subul_df, use_container_width=True)
 
                 b1, b2 = st.columns(2)
@@ -787,7 +802,7 @@ with tab7:
                         ">🖨️ 수불부 인쇄 / PDF 저장</button>
                     """, height=45)
             else:
-                st.info("지정한 기간 동안 입력된 수불 내역이 없습니다.")
+                st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
         else:
             st.info("시트에 입력된 데이터가 없습니다.")
             
