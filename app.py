@@ -60,18 +60,36 @@ def safe_parse_date(series):
     parsed = pd.to_datetime(series, errors='coerce', format='mixed')
     return parsed.dt.date
 
-# 브라우저 인쇄용 컴포넌트 생성 보조 함수 (부모 창 호출 및 UI 가림 스타일 적용)
-def render_print_button():
-    st.components.v1.html("""
+# 집계표 전용 브라우저 인쇄 버튼 컴포넌트
+def render_summary_print_button(period_title=""):
+    st.components.v1.html(f"""
         <script>
-            function printPage() {
-                var style = window.parent.document.createElement('style');
-                style.innerHTML = '@media print { header, footer, button, .stButton, [data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; } }';
-                window.parent.document.head.appendChild(style);
+            function printSummaryOnly() {{
+                var doc = window.parent.document;
+                
+                // 기존 인쇄 전용 스타일 제거
+                var oldStyle = doc.getElementById('print-summary-style');
+                if (oldStyle) oldStyle.remove();
+
+                // 집계표만 출력하고 나머지는 감추는 CSS 주입
+                var style = doc.createElement('style');
+                style.id = 'print-summary-style';
+                style.innerHTML = `
+                    @media print {{
+                        header, footer, button, .stButton, [data-testid="stSidebar"], [data-testid="stHeader"],
+                        .no-print, [data-testid="stExpander"] {{
+                            display: none !important;
+                        }}
+                        .printable-summary {{
+                            display: block !important;
+                        }}
+                    }}
+                `;
+                doc.head.appendChild(style);
                 window.parent.print();
-            }
+            }}
         </script>
-        <button onclick="printPage()" style="
+        <button onclick="printSummaryOnly()" style="
             width: 100%;
             height: 38px;
             background-color: #4CAF50;
@@ -81,7 +99,7 @@ def render_print_button():
             font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-        ">🖨️ 화면 정산표 인쇄 / PDF 저장</button>
+        ">🖨️ 집계 요약표만 인쇄 / PDF 저장</button>
     """, height=45)
 
 # ---------------------------------------------------------
@@ -511,7 +529,6 @@ with tab5:
                     with b1:
                         excel_vendor = io.BytesIO()
                         with pd.ExcelWriter(excel_vendor, engine='openpyxl') as writer:
-                            # 화면에 표시된 필터링 집계표 및 개별 상세표만 저장
                             display_vendor_df.to_excel(writer, index=False, sheet_name='입고정산_집계표')
                             detail_df.to_excel(writer, index=False, sheet_name='입고정산_상세내역')
                         
@@ -523,7 +540,7 @@ with tab5:
                             use_container_width=True
                         )
                     with b2:
-                        render_print_button()
+                        render_summary_print_button(period_str)
                 else:
                     st.info("선택 조건에 해당하는 입고 내역이 없습니다.")
             else:
@@ -613,7 +630,6 @@ with tab6:
                     with ob1:
                         excel_out_vendor = io.BytesIO()
                         with pd.ExcelWriter(excel_out_vendor, engine='openpyxl') as writer:
-                            # 화면에 표시된 필터링 집계표 및 개별 상세표만 저장
                             display_out_vendor_df.to_excel(writer, index=False, sheet_name='출고정산_집계표')
                             out_detail_df.to_excel(writer, index=False, sheet_name='출고정산_상세내역')
                         
@@ -625,7 +641,7 @@ with tab6:
                             use_container_width=True
                         )
                     with ob2:
-                        render_print_button()
+                        render_summary_print_button(period_out_str)
                 else:
                     st.info("선택 조건에 해당하는 출고 내역이 없습니다.")
             else:
@@ -636,7 +652,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부
+# TAB 7: 수불부 (집계 요약표 전용 인쇄)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -735,6 +751,11 @@ with tab7:
                 subul_df["원료명_cat"] = subul_df["원료명"].astype(item_order)
                 subul_df = subul_df.sort_values(by="원료명_cat", ascending=True).drop(columns=["원료명_cat"])
 
+                period_title_str = f"{s_date} ~ {e_date}"
+
+                # --- [인쇄 대상 지정 구역 시작] ---
+                st.markdown(f"#### 📊 원재료 수불 집계 요약표 `[정산 기간: {period_title_str}]`")
+                
                 st.markdown("---")
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("총 전일재고", f"{subul_df['전일재고 (kg)'].sum():,.1f} kg")
@@ -743,10 +764,13 @@ with tab7:
                 m4.metric("현재 당일재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg")
                 st.markdown("---")
 
-                st.write("##### 📅 선택 기간 일자별 상세 수불 내역 (날짜 ➔ 품목 지정순 ➔ 입고 우선 정렬)")
+                # 품목별 집계 요약표 화면 표시
+                st.dataframe(subul_df, use_container_width=True)
+                # --- [인쇄 대상 지정 구역 끝] ---
+
+                # 일자별 상세 내역 (아코디언 접기 형태)
                 if detail_history_rows:
                     display_period = pd.DataFrame(detail_history_rows)
-                    
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
                     display_period["구분_cat"] = display_period["구분"].astype(type_order)
                     
@@ -754,32 +778,28 @@ with tab7:
                         by=["일자", "원료명_cat", "구분_cat"], 
                         ascending=[True, True, True]
                     ).drop(columns=["원료명_cat", "구분_cat"])
-                    
-                    st.dataframe(display_period, use_container_width=True)
-                else:
-                    st.info("선택 조건에 해당하는 거래 이력이 없습니다.")
 
-                with st.expander("📊 품목별 수불 집계 요약표 보기"):
-                    st.dataframe(subul_df, use_container_width=True)
+                    with st.expander("🔍 일자별 개별 수불 상세 내역 보기 (날짜 ➔ 품목 지정순)"):
+                        st.dataframe(display_period, use_container_width=True)
 
                 b1, b2 = st.columns(2)
                 with b1:
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        # 화면에 표시되는 필터링 결과 그대로 엑셀 저장
+                        subul_df.to_excel(writer, index=False, sheet_name='품목별집계')
                         if detail_history_rows:
                             display_period.to_excel(writer, index=False, sheet_name='일별수불이력')
-                        subul_df.to_excel(writer, index=False, sheet_name='품목별집계')
                     
                     st.download_button(
-                        label="📥 수불부 엑셀 다운로드 (화면 표시용)",
+                        label="📥 수불부 엑셀 다운로드 (집계표 + 상세 내역)",
                         data=excel_buffer.getvalue(),
                         file_name=f"야채원재료_수불부_{s_date}_{e_date}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 with b2:
-                    render_print_button()
+                    # 상단 집계 요약표만 인쇄하는 전용 버튼 실행
+                    render_summary_print_button(period_title_str)
             else:
                 st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
         else:
