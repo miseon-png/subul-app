@@ -625,7 +625,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (같은 날 입고 우선 정렬 및 연산 보정)
+# TAB 7: 수불부 (우선순위: 날짜 ➔ 품목 지정순 ➔ 입고 우선 연산 및 출력)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -646,33 +646,39 @@ with tab7:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             df["수량_num"] = pd.to_numeric(df["수량(kg)"].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            # 동일 일자 내 정렬 우선순위 정의 (입고 ➔ 로스 ➔ 출고)
+            # 정렬 타입 선언 (품목 지정순, 구분 입고 우선순)
+            item_order = pd.CategoricalDtype(categories=RAW_ITEMS, ordered=True)
             type_order = pd.CategoricalDtype(categories=["입고", "로스", "출고"], ordered=True)
+            
+            df["원료명_cat"] = df["원료명"].astype(item_order)
             df["구분_cat"] = df["구분"].astype(type_order)
             
-            # 날짜 오름차순 ➔ 동일 일자 내 입고 우선 정렬
-            df = df.sort_values(by=["일자_parsed", "구분_cat"], ascending=[True, True])
+            # 표준 정렬: 1) 날짜 오름차순 ➔ 2) 품목 지정순 ➔ 3) 입고 우선
+            df = df.sort_values(by=["일자_parsed", "원료명_cat", "구분_cat"], ascending=[True, True, True])
 
             summary_rows = []
             detail_history_rows = []
 
-            # 지정 품목 순서(RAW_ITEMS) 순회
+            # RAW_ITEMS 지정 품목 순서별 독립 계산
             for item in RAW_ITEMS:
                 item_df = df[df["원료명"] == item].copy()
                 
-                # 시작일 이전 재고 (이월재고 = 전일재고)
+                # 시작일 이전 이월재고 계산
                 prior_df = item_df[item_df["일자_parsed"] < s_date]
                 prior_in = prior_df[prior_df["구분"] == "입고"]["수량_num"].sum()
                 prior_out = prior_df[prior_df["구분"] == "출고"]["수량_num"].sum()
                 prior_loss = prior_df[prior_df["구분"] == "로스"]["수량_num"].sum()
                 
-                init_stock = prior_in - prior_out - prior_loss  # 정산 시작일 기준 전일재고
+                init_stock = prior_in - prior_out - prior_loss  # 전일재고
                 
-                # 정산 기간 내 내역
+                # 정산 기간 내 수불 계산
                 period_item = item_df[
                     (item_df["일자_parsed"] >= s_date) & 
                     (item_df["일자_parsed"] <= e_date)
                 ].copy()
+                
+                # 동일 일자 내 입고가 출고보다 먼저 연산되도록 2차 정렬 적용
+                period_item = period_item.sort_values(by=["일자_parsed", "구분_cat"], ascending=[True, True])
                 
                 curr_in = period_item[period_item["구분"] == "입고"]["수량_num"].sum()
                 curr_out = period_item[period_item["구분"] == "출고"]["수량_num"].sum()
@@ -690,7 +696,7 @@ with tab7:
                         "당일재고 (kg)": round(curr_stock, 1)
                     })
 
-                # 일자별 상세 수불 흐름 계산 (입고가 먼저 계산됨)
+                # 일자별 상세 수불 누적 연산 (입고가 출고보다 먼저 연산됨)
                 running_stock = init_stock
                 for idx, row in period_item.iterrows():
                     rec_in = row["수량_num"] if row["구분"] == "입고" else 0.0
@@ -700,7 +706,6 @@ with tab7:
                     prev_s = running_stock
                     running_stock = running_stock + rec_in - rec_out - rec_loss
                     
-                    # Series 객체 오염 방지 안전 추출
                     v_vendor = row["거래처"].iloc[0] if isinstance(row.get("거래처"), pd.Series) else row.get("거래처", "-")
                     v_note = row["비고"].iloc[0] if isinstance(row.get("비고"), pd.Series) else row.get("비고", "-")
 
@@ -720,10 +725,7 @@ with tab7:
             if summary_rows:
                 subul_df = pd.DataFrame(summary_rows)
                 
-                # RAW_ITEMS 순서 기준 정렬 객체 생성
-                item_order = pd.CategoricalDtype(categories=RAW_ITEMS, ordered=True)
-                
-                # 집계 요약표 지정순 정렬
+                # 집계 요약표 품목 지정순 정렬
                 subul_df["원료명_cat"] = subul_df["원료명"].astype(item_order)
                 subul_df = subul_df.sort_values(by="원료명_cat", ascending=True).drop(columns=["원료명_cat"])
 
@@ -735,16 +737,16 @@ with tab7:
                 m4.metric("현재 당일재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg")
                 st.markdown("---")
 
-                st.write("##### 📅 선택 기간 일자별 상세 수불 내역 (날짜 오름차순 ➔ 입고 우선 ➔ 지정 품목순 정렬)")
+                st.write("##### 📅 선택 기간 일자별 상세 수불 내역 (날짜 ➔ 품목 지정순 ➔ 입고 우선 정렬)")
                 if detail_history_rows:
                     display_period = pd.DataFrame(detail_history_rows)
                     
-                    # 상세 수불 내역 정렬 (날짜 오름차순 ➔ 입고 우선 ➔ 품목 지정순)
+                    # 상세 표 정렬: 1) 날짜 오름차순 ➔ 2) 품목 지정순 ➔ 3) 입고 우선
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
                     display_period["구분_cat"] = display_period["구분"].astype(type_order)
                     
                     display_period = display_period.sort_values(
-                        by=["일자", "구분_cat", "원료명_cat"], 
+                        by=["일자", "원료명_cat", "구분_cat"], 
                         ascending=[True, True, True]
                     ).drop(columns=["원료명_cat", "구분_cat"])
                     
