@@ -41,12 +41,10 @@ def init_gspread():
     url = st.secrets["sheets"]["spreadsheet_url"]
     return client.open_by_url(url)
 
-# 해당 월의 1일 날짜 자동 가져오기
 def get_first_day_of_month():
     today = date.today()
     return date(today.year, today.month, 1)
 
-# 안전한 시트 데이터프레임 로더
 def get_safe_dataframe(sheet_obj):
     all_values = sheet_obj.get_all_values()
     if not all_values or len(all_values) <= 1:
@@ -58,10 +56,33 @@ def get_safe_dataframe(sheet_obj):
     df = pd.DataFrame(data, columns=headers)
     return df
 
-# 안전한 날짜 변환
 def safe_parse_date(series):
     parsed = pd.to_datetime(series, errors='coerce', format='mixed')
     return parsed.dt.date
+
+# 브라우저 인쇄용 컴포넌트 생성 보조 함수 (부모 창 호출 및 UI 가림 스타일 적용)
+def render_print_button():
+    st.components.v1.html("""
+        <script>
+            function printPage() {
+                var style = window.parent.document.createElement('style');
+                style.innerHTML = '@media print { header, footer, button, .stButton, [data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; } }';
+                window.parent.document.head.appendChild(style);
+                window.parent.print();
+            }
+        </script>
+        <button onclick="printPage()" style="
+            width: 100%;
+            height: 38px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        ">🖨️ 화면 정산표 인쇄 / PDF 저장</button>
+    """, height=45)
 
 # ---------------------------------------------------------
 # 2. 마스터 데이터 및 배합비 레시피 정의
@@ -398,7 +419,7 @@ with tab4:
                 st.error(f"저장 실패: {e}")
 
 # ---------------------------------------------------------
-# TAB 5: 거래처별 입고 정산 (품목 필터 추가)
+# TAB 5: 거래처별 입고 정산
 # ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
@@ -470,17 +491,17 @@ with tab5:
                         use_container_width=True
                     )
 
+                    detail_df = pd.DataFrame({
+                        "기간": filtered_in["일자"],
+                        "거래처": filtered_in["거래처"],
+                        "품명": filtered_in["원료명"],
+                        "입고 중량 (kg)": filtered_in["수량_num"],
+                        "단가": filtered_in["단가_num"],
+                        "총액": filtered_in["총금액_num"],
+                        "비고": filtered_in["비고"]
+                    }).sort_values(by="기간", ascending=True)
+
                     with st.expander("🔍 일자별 개별 입고 상세 내역 보기 (날짜 오름차순)"):
-                        detail_df = pd.DataFrame({
-                            "기간": filtered_in["일자"],
-                            "거래처": filtered_in["거래처"],
-                            "품명": filtered_in["원료명"],
-                            "입고 중량 (kg)": filtered_in["수량_num"],
-                            "단가": filtered_in["단가_num"],
-                            "총액": filtered_in["총금액_num"],
-                            "비고": filtered_in["비고"]
-                        }).sort_values(by="기간", ascending=True)
-                        
                         st.dataframe(
                             detail_df.style.format({"단가": "{:,.0f}원", "총액": "{:,.0f}원"}),
                             use_container_width=True
@@ -490,29 +511,19 @@ with tab5:
                     with b1:
                         excel_vendor = io.BytesIO()
                         with pd.ExcelWriter(excel_vendor, engine='openpyxl') as writer:
-                            display_vendor_df.to_excel(writer, index=False, sheet_name='거래처별입고정산')
+                            # 화면에 표시된 필터링 집계표 및 개별 상세표만 저장
+                            display_vendor_df.to_excel(writer, index=False, sheet_name='입고정산_집계표')
+                            detail_df.to_excel(writer, index=False, sheet_name='입고정산_상세내역')
                         
                         st.download_button(
-                            label="📥 거래처별 입고정산표 엑셀 다운로드",
+                            label="📥 거래처별 입고정산표 엑셀 다운로드 (화면 표시용)",
                             data=excel_vendor.getvalue(),
                             file_name=f"거래처별_입고정산_{s_date_in}_{e_date_in}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
                     with b2:
-                        st.components.v1.html("""
-                            <button onclick="window.print()" style="
-                                width: 100%;
-                                height: 38px;
-                                background-color: #4CAF50;
-                                color: white;
-                                border: none;
-                                border-radius: 8px;
-                                font-size: 14px;
-                                font-weight: bold;
-                                cursor: pointer;
-                            ">🖨️ 정산표 인쇄 / PDF 저장</button>
-                        """, height=45)
+                        render_print_button()
                 else:
                     st.info("선택 조건에 해당하는 입고 내역이 없습니다.")
             else:
@@ -523,7 +534,7 @@ with tab5:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 6: 거래처별 출고 정산 (품목 필터 추가)
+# TAB 6: 거래처별 출고 정산
 # ---------------------------------------------------------
 with tab6:
     st.subheader("🚚 거래처별 출고 정산 내역")
@@ -587,44 +598,34 @@ with tab6:
                     st.write("##### 📋 거래처별 출고 집계표")
                     st.dataframe(display_out_vendor_df, use_container_width=True)
 
+                    out_detail_df = pd.DataFrame({
+                        "일자": filtered_out["일자"],
+                        "거래처": filtered_out["거래처"],
+                        "원료명": filtered_out["원료명"],
+                        "출고 중량 (kg)": filtered_out["수량_num"],
+                        "비고": filtered_out["비고"]
+                    }).sort_values(by="일자", ascending=True)
+
                     with st.expander("🔍 일자별 개별 출고 상세 내역 보기 (날짜 오름차순)"):
-                        out_detail_df = pd.DataFrame({
-                            "일자": filtered_out["일자"],
-                            "거래처": filtered_out["거래처"],
-                            "원료명": filtered_out["원료명"],
-                            "출고 중량 (kg)": filtered_out["수량_num"],
-                            "비고": filtered_out["비고"]
-                        }).sort_values(by="일자", ascending=True)
-                        
                         st.dataframe(out_detail_df, use_container_width=True)
 
                     ob1, ob2 = st.columns(2)
                     with ob1:
                         excel_out_vendor = io.BytesIO()
                         with pd.ExcelWriter(excel_out_vendor, engine='openpyxl') as writer:
-                            display_out_vendor_df.to_excel(writer, index=False, sheet_name='거래처별출고정산')
+                            # 화면에 표시된 필터링 집계표 및 개별 상세표만 저장
+                            display_out_vendor_df.to_excel(writer, index=False, sheet_name='출고정산_집계표')
+                            out_detail_df.to_excel(writer, index=False, sheet_name='출고정산_상세내역')
                         
                         st.download_button(
-                            label="📥 거래처별 출고정산표 엑셀 다운로드",
+                            label="📥 거래처별 출고정산표 엑셀 다운로드 (화면 표시용)",
                             data=excel_out_vendor.getvalue(),
                             file_name=f"거래처별_출고정산_{s_date_out}_{e_date_out}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
                     with ob2:
-                        st.components.v1.html("""
-                            <button onclick="window.print()" style="
-                                width: 100%;
-                                height: 38px;
-                                background-color: #4CAF50;
-                                color: white;
-                                border: none;
-                                border-radius: 8px;
-                                font-size: 14px;
-                                font-weight: bold;
-                                cursor: pointer;
-                            ">🖨️ 정산표 인쇄 / PDF 저장</button>
-                        """, height=45)
+                        render_print_button()
                 else:
                     st.info("선택 조건에 해당하는 출고 내역이 없습니다.")
             else:
@@ -635,7 +636,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (품목 필터 추가)
+# TAB 7: 수불부
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -658,41 +659,34 @@ with tab7:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             df["수량_num"] = pd.to_numeric(df["수량(kg)"].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            # 정렬 타입 선언 (품목 지정순, 구분 입고 우선순)
             item_order = pd.CategoricalDtype(categories=RAW_ITEMS, ordered=True)
             type_order = pd.CategoricalDtype(categories=["입고", "로스", "출고"], ordered=True)
             
             df["원료명_cat"] = df["원료명"].astype(item_order)
             df["구분_cat"] = df["구분"].astype(type_order)
             
-            # 표준 정렬: 1) 날짜 오름차순 ➔ 2) 품목 지정순 ➔ 3) 입고 우선
             df = df.sort_values(by=["일자_parsed", "원료명_cat", "구분_cat"], ascending=[True, True, True])
 
             summary_rows = []
             detail_history_rows = []
 
-            # 품목 필터링 적용할 대상 리스트 선정
             target_items = [subul_item_filter] if subul_item_filter != "전체" else RAW_ITEMS
 
-            # 대상 품목 순회 계산
             for item in target_items:
                 item_df = df[df["원료명"] == item].copy()
                 
-                # 시작일 이전 이월재고 계산
                 prior_df = item_df[item_df["일자_parsed"] < s_date]
                 prior_in = prior_df[prior_df["구분"] == "입고"]["수량_num"].sum()
                 prior_out = prior_df[prior_df["구분"] == "출고"]["수량_num"].sum()
                 prior_loss = prior_df[prior_df["구분"] == "로스"]["수량_num"].sum()
                 
-                init_stock = prior_in - prior_out - prior_loss  # 전일재고
+                init_stock = prior_in - prior_out - prior_loss
                 
-                # 정산 기간 내 수불 계산
                 period_item = item_df[
                     (item_df["일자_parsed"] >= s_date) & 
                     (item_df["일자_parsed"] <= e_date)
                 ].copy()
                 
-                # 동일 일자 내 입고가 출고보다 먼저 연산되도록 2차 정렬 적용
                 period_item = period_item.sort_values(by=["일자_parsed", "구분_cat"], ascending=[True, True])
                 
                 curr_in = period_item[period_item["구분"] == "입고"]["수량_num"].sum()
@@ -711,7 +705,6 @@ with tab7:
                         "당일재고 (kg)": round(curr_stock, 1)
                     })
 
-                # 일자별 상세 수불 누적 연산
                 running_stock = init_stock
                 for idx, row in period_item.iterrows():
                     rec_in = row["수량_num"] if row["구분"] == "입고" else 0.0
@@ -739,8 +732,6 @@ with tab7:
 
             if summary_rows:
                 subul_df = pd.DataFrame(summary_rows)
-                
-                # 집계 요약표 품목 지정순 정렬
                 subul_df["원료명_cat"] = subul_df["원료명"].astype(item_order)
                 subul_df = subul_df.sort_values(by="원료명_cat", ascending=True).drop(columns=["원료명_cat"])
 
@@ -756,7 +747,6 @@ with tab7:
                 if detail_history_rows:
                     display_period = pd.DataFrame(detail_history_rows)
                     
-                    # 상세 표 정렬: 1) 날짜 오름차순 ➔ 2) 품목 지정순 ➔ 3) 입고 우선
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
                     display_period["구분_cat"] = display_period["구분"].astype(type_order)
                     
@@ -776,31 +766,20 @@ with tab7:
                 with b1:
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        # 화면에 표시되는 필터링 결과 그대로 엑셀 저장
                         if detail_history_rows:
                             display_period.to_excel(writer, index=False, sheet_name='일별수불이력')
                         subul_df.to_excel(writer, index=False, sheet_name='품목별집계')
                     
                     st.download_button(
-                        label="📥 수불부 엑셀 다운로드",
+                        label="📥 수불부 엑셀 다운로드 (화면 표시용)",
                         data=excel_buffer.getvalue(),
                         file_name=f"야채원재료_수불부_{s_date}_{e_date}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         use_container_width=True
                     )
                 with b2:
-                    st.components.v1.html("""
-                        <button onclick="window.print()" style="
-                            width: 100%;
-                            height: 38px;
-                            background-color: #4CAF50;
-                            color: white;
-                            border: none;
-                            border-radius: 8px;
-                            font-size: 14px;
-                            font-weight: bold;
-                            cursor: pointer;
-                        ">🖨️ 수불부 인쇄 / PDF 저장</button>
-                    """, height=45)
+                    render_print_button()
             else:
                 st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
         else:
