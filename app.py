@@ -61,78 +61,37 @@ def safe_parse_date(series):
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 수불부 전체 보고서(집계표 + 일자별 상세내역) 인쇄 팝업
+# 문자열 노출 오류 차단용 안전 인쇄 컴포넌트
 # ---------------------------------------------------------
 def render_full_subul_print(df_summary, df_detail, period_str):
-    tot_prev = df_summary['전일재고 (kg)'].sum()
-    tot_in = df_summary['당일입고 (kg)'].sum()
-    tot_use = df_summary['당일사용 (kg)'].sum()
-    tot_day = df_summary['당일재고 (kg)'].sum()
+    tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
+    tot_in = df_summary['당일입고 (kg)'].sum() if '당일입고 (kg)' in df_summary else 0
+    tot_use = df_summary['당일사용 (kg)'].sum() if '당일사용 (kg)' in df_summary else 0
+    tot_day = df_summary['당일재고 (kg)'].sum() if '당일재고 (kg)' in df_summary else 0
     
     summary_html = df_summary.to_html(index=False, classes="print-table")
     detail_html = df_detail.to_html(index=False, classes="print-table") if df_detail is not None and not df_detail.empty else "<p>상세 내역이 없습니다.</p>"
     
-    print_doc_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>야채 원재료 수불 정산 보고서</title>
-        <style>
-            body {{ font-family: 'Malgun Gothic', sans-serif; padding: 20px; color: #333; line-height: 1.4; }}
-            h2 {{ margin-bottom: 5px; color: #1e3a8a; }}
-            h3 {{ margin-top: 25px; margin-bottom: 8px; color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 4px; }}
-            .period {{ font-size: 14px; color: #555; margin-bottom: 20px; font-weight: bold; }}
-            .metrics {{ display: flex; gap: 12px; margin-bottom: 20px; }}
-            .m-box {{ flex: 1; border: 1px solid #cbd5e1; padding: 10px; border-radius: 6px; text-align: center; background-color: #f8fafc; }}
-            .m-box .title {{ font-size: 12px; color: #64748b; }}
-            .m-box .val {{ font-size: 15px; font-weight: bold; margin-top: 4px; color: #0f172a; }}
-            .print-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; page-break-inside: auto; }}
-            .print-table tr {{ page-break-inside: avoid; page-break-after: auto; }}
-            .print-table th {{ background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 6px; text-align: center; font-weight: bold; }}
-            .print-table td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: center; }}
-            @media print {{
-                body {{ padding: 0; }}
-            }}
-        </style>
-    </head>
-    <body>
-        <h2>📊 야채 원재료 수불 정산 보고서</h2>
-        <div class="period">🗓️ 정산 기간: {period_str}</div>
-        
-        <div class="metrics">
-            <div class="m-box"><div class="title">총 전일재고</div><div class="val">{tot_prev:,.1f} kg</div></div>
-            <div class="m-box"><div class="title">총 입고량</div><div class="val">{tot_in:,.1f} kg</div></div>
-            <div class="m-box"><div class="title">총 사용량</div><div class="val">{tot_use:,.1f} kg</div></div>
-            <div class="m-box"><div class="title">현재 당일재고</div><div class="val">{tot_day:,.1f} kg</div></div>
-        </div>
-
-        <h3>1. 품목별 수불 집계 요약표</h3>
-        {summary_html}
-
-        <h3 style="page-break-before: auto;">2. 일자별 개별 수불 상세 내역</h3>
-        {detail_html}
-
-        <script>
-            window.onload = function() {{
-                window.print();
-            }}
-        </script>
-    </body>
-    </html>
-    """
-    
-    escaped_html = print_doc_html.replace('`', '\\`').replace('${', '\\${')
-    
-    st.components.v1.html(f"""
-        <script>
-            function openPrintWindow() {{
-                var printWindow = window.open('', '_blank', 'width=900,height=900');
-                printWindow.document.write(`{escaped_html}`);
-                printWindow.document.close();
-            }}
-        </script>
-        <button onclick="openPrintWindow()" style="
+    # 텍스트 깨짐 원인이 되는 백틱 대신 표준 따옴표 구조 적용
+    btn_html = f"""
+    <div style="width:100%;">
+        <button onclick="
+            var pWin = window.open('', '_blank', 'width=900,height=900');
+            pWin.document.write('<html><head><title>수불 정산 보고서</title>');
+            pWin.document.write('<style>body{{font-family:sans-serif;padding:20px;}} h2{{color:#1e3a8a;}} .metrics{{display:flex;gap:10px;margin:15px 0;}} .m-box{{flex:1;border:1px solid #ccc;padding:8px;text-align:center;background:#f8fafc;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background:#f1f5f9;}}</style>');
+            pWin.document.write('</head><body>');
+            pWin.document.write('<h2>📊 야채 원재료 수불 정산 보고서</h2>');
+            pWin.document.write('<div><b>🗓️ 정산 기간:</b> {period_str}</div>');
+            pWin.document.write('<div class=\"metrics\"><div class=\"m-box\">전일재고<br><b>{tot_prev:,.1f} kg</b></div><div class=\"m-box\">총 입고량<br><b>{tot_in:,.1f} kg</b></div><div class=\"m-box\">총 사용량<br><b>{tot_use:,.1f} kg</b></div><div class=\"m-box\">당일재고<br><b>{tot_day:,.1f} kg</b></div></div>');
+            pWin.document.write('<h3>1. 품목별 수불 집계 요약표</h3>');
+            pWin.document.write('{summary_html.replace(chr(10), " ")}');
+            pWin.document.write('<h3>2. 일자별 개별 수불 상세 내역</h3>');
+            pWin.document.write('{detail_html.replace(chr(10), " ")}');
+            pWin.document.write('</body></html>');
+            pWin.document.close();
+            pWin.focus();
+            setTimeout(function(){{ pWin.print(); }}, 500);
+        " style="
             width: 100%;
             height: 38px;
             background-color: #4CAF50;
@@ -143,48 +102,32 @@ def render_full_subul_print(df_summary, df_detail, period_str):
             font-weight: bold;
             cursor: pointer;
         ">🖨️ 수불부 전체 내역(집계 + 일자별 상세) 인쇄 / PDF 저장</button>
-    """, height=45)
+    </div>
+    """
+    st.components.v1.html(btn_html, height=45)
 
-# 일반 집계표 인쇄 보조 함수 (거래처 정산용)
 def render_clean_summary_print(df_summary, period_str):
     table_html = df_summary.to_html(index=False, classes="print-table")
-    print_doc_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>거래처 정산 집계표</title>
-        <style>
-            body {{ font-family: 'Malgun Gothic', sans-serif; padding: 20px; color: #333; }}
-            h2 {{ margin-bottom: 5px; color: #1e3a8a; }}
-            .period {{ font-size: 14px; color: #555; margin-bottom: 20px; font-weight: bold; }}
-            .print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }}
-            .print-table th {{ background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 8px; text-align: center; font-weight: bold; }}
-            .print-table td {{ border: 1px solid #cbd5e1; padding: 7px; text-align: center; }}
-            @media print {{ body {{ padding: 0; }} }}
-        </style>
-    </head>
-    <body>
-        <h2>📋 거래처 정산 집계표</h2>
-        <div class="period">🗓️ 정산 기간: {period_str}</div>
-        {table_html}
-        <script>window.onload = function() {{ window.print(); }}</script>
-    </body>
-    </html>
-    """
-    escaped_html = print_doc_html.replace('`', '\\`').replace('${', '\\${')
-    st.components.v1.html(f"""
-        <script>
-            function openPrintWindow() {{
-                var printWindow = window.open('', '_blank', 'width=850,height=900');
-                printWindow.document.write(`{escaped_html}`);
-                printWindow.document.close();
-            }}
-        </script>
-        <button onclick="openPrintWindow()" style="
+    btn_html = f"""
+    <div style="width:100%;">
+        <button onclick="
+            var pWin = window.open('', '_blank', 'width=850,height=900');
+            pWin.document.write('<html><head><title>거래처 정산 집계표</title>');
+            pWin.document.write('<style>body{{font-family:sans-serif;padding:20px;}} h2{{color:#1e3a8a;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background:#f1f5f9;}}</style>');
+            pWin.document.write('</head><body>');
+            pWin.document.write('<h2>📋 거래처 정산 집계표</h2>');
+            pWin.document.write('<div><b>🗓️ 정산 기간:</b> {period_str}</div>');
+            pWin.document.write('{table_html.replace(chr(10), " ")}');
+            pWin.document.write('</body></html>');
+            pWin.document.close();
+            pWin.focus();
+            setTimeout(function(){{ pWin.print(); }}, 500);
+        " style="
             width: 100%; height: 38px; background-color: #4CAF50; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; cursor: pointer;
         ">🖨️ 정산 집계표 인쇄 / PDF 저장</button>
-    """, height=45)
+    </div>
+    """
+    st.components.v1.html(btn_html, height=45)
 
 # ---------------------------------------------------------
 # 2. 마스터 데이터 및 배합비 레시피 정의
@@ -736,7 +679,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (전체 보고서 인쇄: 집계표 + 일자별 상세 내역 포함)
+# TAB 7: 수불부
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -879,7 +822,7 @@ with tab7:
                         use_container_width=True
                     )
                 with b2:
-                    # 집계 요약표 + 일자별 상세 내역을 전체 인쇄하는 팝업 실행
+                    # 안전한 전체 정산 보고서 인쇄 실행
                     render_full_subul_print(subul_df, display_period, period_title_str)
             else:
                 st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
