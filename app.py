@@ -55,7 +55,6 @@ def get_safe_dataframe(sheet_obj):
     
     df = pd.DataFrame(data, columns=headers)
     
-    # 구분명 자동 표준화 (당일입고 -> 입고, 당일사용/사용 -> 출고)
     if "구분" in df.columns:
         df["구분"] = df["구분"].astype(str).str.strip()
         df["구분"] = df["구분"].replace({
@@ -169,7 +168,6 @@ def render_clean_summary_print(df_summary, period_str):
                 doc.write('<h2>📋 거래처 정산 집계표</h2>');
                 doc.write('<div><b>정산 기간:</b> {period_str}</div>');
                 doc.write('{table_html}');
-                doc.write('</body></html>');
                 doc.close();
                 pWin.focus();
                 setTimeout(function(){{ pWin.print(); }}, 500);
@@ -238,9 +236,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 수불부 (재고 정산)"
 ])
 
-# ---------------------------------------------------------
-# TAB 1 ~ 6: 등록 및 거래처 정산 (기존 동일)
-# ---------------------------------------------------------
+# TAB 1~6
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록 (반품 시 -중량 입력)")
     col_date, col_vendor, col_btn = st.columns([1.5, 1.5, 1])
@@ -644,14 +640,27 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (동일 일자 내 입고 우선 정렬 및 연산 완벽 적용)
+# TAB 7: 수불부 (초기 날짜 구글 시트 최소 일자로 자동 연동)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
     
+    # 구글 시트 상 최신 데이터 날짜 파싱하여 기본 정산 시작일 자동 보정
+    default_start_date = get_first_day_of_month()
+    try:
+        raw_sheet_df = get_safe_dataframe(sheet)
+        if not raw_sheet_df.empty and "일자" in raw_sheet_df.columns:
+            parsed_dates = safe_parse_date(raw_sheet_df["일자"]).dropna()
+            if not parsed_dates.empty:
+                min_sheet_date = min(parsed_dates)
+                if min_sheet_date < default_start_date:
+                    default_start_date = min_sheet_date
+    except Exception:
+        pass
+
     ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 0.8])
     with ctrl1:
-        s_date = st.date_input("정산 시작일", value=get_first_day_of_month(), key="subul_sdate")
+        s_date = st.date_input("정산 시작일", value=default_start_date, key="subul_sdate")
     with ctrl2:
         e_date = st.date_input("정산 종료일", value=datetime.today(), key="subul_edate")
     with ctrl3:
@@ -667,14 +676,13 @@ with tab7:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             df["수량_num"] = pd.to_numeric(df["수량(kg)"].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            # 카테고리 순서 정의 (품목 지정순, 구분 입고 우선순)
             item_order = pd.CategoricalDtype(categories=RAW_ITEMS, ordered=True)
             type_order = pd.CategoricalDtype(categories=["입고", "로스", "출고"], ordered=True)
             
             df["원료명_cat"] = df["원료명"].astype(item_order)
             df["구분_cat"] = df["구분"].astype(type_order)
             
-            # 1차 원천 데이터 정렬: 날짜 오름차순 ➔ 입고 우선(입고 -> 로스 -> 출고) ➔ 품목 지정순
+            # 날짜 ➔ 입고 우선(입고 -> 로스 -> 출고) ➔ 품목 지정순 정렬
             df = df.sort_values(by=["일자_parsed", "구분_cat", "원료명_cat"], ascending=[True, True, True])
 
             summary_rows = []
@@ -685,7 +693,6 @@ with tab7:
             for item in target_items:
                 item_df = df[df["원료명"] == item].copy()
                 
-                # 정산 시작일 이전 이월재고(전일재고) 계산
                 prior_df = item_df[item_df["일자_parsed"] < s_date]
                 prior_in = prior_df[prior_df["구분"] == "입고"]["수량_num"].sum()
                 prior_out = prior_df[prior_df["구분"] == "출고"]["수량_num"].sum()
@@ -693,7 +700,6 @@ with tab7:
                 
                 init_stock = prior_in - prior_out - prior_loss
                 
-                # 정산 기간 내 수불 내역 추출 (동일 날짜 내 입고 우선 정렬 적용)
                 period_item = item_df[
                     (item_df["일자_parsed"] >= s_date) & 
                     (item_df["일자_parsed"] <= e_date)
@@ -717,7 +723,6 @@ with tab7:
                         "당일재고 (kg)": round(curr_stock, 1)
                     })
 
-                # 일자별 연속 재고 흐름 계산 (같은 날 입고가 출고보다 먼저 계산됨)
                 running_stock = init_stock
                 for idx, row in period_item.iterrows():
                     rec_in = row["수량_num"] if row["구분"] == "입고" else 0.0
@@ -768,7 +773,6 @@ with tab7:
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
                     display_period["구분_cat"] = display_period["구분"].astype(type_order)
                     
-                    # 화면 정렬: 1) 날짜 오름차순 ➔ 2) 입고 우선(입고 -> 로스 -> 출고) ➔ 3) 품목 지정순
                     display_period = display_period.sort_values(
                         by=["일자", "구분_cat", "원료명_cat"], 
                         ascending=[True, True, True]
