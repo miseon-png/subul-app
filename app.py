@@ -8,7 +8,7 @@ import io
 st.set_page_config(page_title="야채 원재료 수불 관리 시스템", layout="wide")
 
 # ---------------------------------------------------------
-# 1. 구글 시트 연동 및 보조 함수
+# 1. 구글 시트 연동 및 보조 함수 (API 429 에러 방지 캐싱 적용)
 # ---------------------------------------------------------
 @st.cache_resource
 def init_gspread():
@@ -41,11 +41,11 @@ def init_gspread():
     url = st.secrets["sheets"]["spreadsheet_url"]
     return client.open_by_url(url)
 
-def get_first_day_of_month():
-    today = date.today()
-    return date(today.year, today.month, 1)
-
-def get_safe_dataframe(sheet_obj):
+# API 429 방지를 위해 시트 데이터 로드를 60초간 캐싱
+@st.cache_data(ttl=60)
+def fetch_sheet_data():
+    doc = init_gspread()
+    sheet_obj = doc.worksheet("시트1")
     all_values = sheet_obj.get_all_values()
     if not all_values or len(all_values) <= 1:
         return pd.DataFrame(columns=["일자", "구분", "거래처", "원료명", "수량(kg)", "단가", "총금액", "비고"])
@@ -66,6 +66,10 @@ def get_safe_dataframe(sheet_obj):
         })
         
     return df
+
+def get_first_day_of_month():
+    today = date.today()
+    return date(today.year, today.month, 1)
 
 def safe_parse_date(series):
     s = series.astype(str).str.strip()
@@ -291,17 +295,17 @@ with tab1:
                         sheet.append_row(row_data)
                         saved_count += 1
                 if saved_count > 0:
+                    st.cache_data.clear() # 캐시 초기화
                     st.success(f"✅ 총 {saved_count}개 입고 항목 구글 시트 저장 완료!")
                 else:
                     st.warning("⚠️ 선택된 품목이 없거나 입고 중량이 0kg인 항목만 있습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
-    # 저장이 완료된 후 또는 조회 시 알림 바로 아래에 최근 등록 데이터 8건 노출
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
     try:
-        recent_in_df = get_safe_dataframe(sheet)
+        recent_in_df = fetch_sheet_data()
         if not recent_in_df.empty:
             st.dataframe(recent_in_df.tail(8), use_container_width=True)
     except Exception:
@@ -353,17 +357,17 @@ with tab2:
                         sheet.append_row(row_data)
                         saved_count += 1
                 if saved_count > 0:
+                    st.cache_data.clear() # 캐시 초기화
                     st.success(f"✅ 총 {saved_count}개 출고 항목 구글 시트 저장 완료!")
                 else:
                     st.warning("⚠️ 선택된 품목이 없거나 출고 중량이 0kg인 항목만 있습니다.")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
-    # 저장이 완료된 후 최근 등록 데이터 8건 노출
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
     try:
-        recent_out_df = get_safe_dataframe(sheet)
+        recent_out_df = fetch_sheet_data()
         if not recent_out_df.empty:
             st.dataframe(recent_out_df.tail(8), use_container_width=True)
     except Exception:
@@ -425,17 +429,17 @@ with tab3:
                     sheet.append_row(row_data)
                     saved_count += 1
             if saved_count > 0:
+                st.cache_data.clear() # 캐시 초기화
                 st.success(f"✅ [{product_name} {prod_qty}개] 배합비 원재료 {saved_count}종 출고 저장 완료!")
             else:
                 st.warning("⚠️ 출고 중량이 0kg인 항목만 있습니다.")
         except Exception as e:
             st.error(f"배합비 출고 저장 실패: {e}")
 
-    # 저장이 완료된 후 최근 등록 데이터 8건 노출
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
     try:
-        recent_recipe_df = get_safe_dataframe(sheet)
+        recent_recipe_df = fetch_sheet_data()
         if not recent_recipe_df.empty:
             st.dataframe(recent_recipe_df.tail(8), use_container_width=True)
     except Exception:
@@ -463,15 +467,15 @@ with tab4:
                 if lw > 0:
                     row_data = [str(record_date), "로스", "자체폐기", itm, float(lw), "-", "-", str(note)]
                     sheet.append_row(row_data)
+                    st.cache_data.clear() # 캐시 초기화
                     st.success(f"✅ [로스 저장 완료] {itm} {lw}kg")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
-    # 저장이 완료된 후 최근 등록 데이터 8건 노출
     st.markdown("---")
     st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
     try:
-        recent_loss_df = get_safe_dataframe(sheet)
+        recent_loss_df = fetch_sheet_data()
         if not recent_loss_df.empty:
             st.dataframe(recent_loss_df.tail(8), use_container_width=True)
     except Exception:
@@ -493,7 +497,7 @@ with tab5:
         item_filter_in = st.selectbox("품목 필터", ["전체"] + RAW_ITEMS, key="vendor_item_filter")
 
     try:
-        df = get_safe_dataframe(sheet)
+        df = fetch_sheet_data()
         if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             in_df = df[df["구분"] == "입고"].copy()
@@ -602,7 +606,7 @@ with tab6:
         item_filter_out = st.selectbox("품목 필터", ["전체"] + RAW_ITEMS, key="out_vendor_item_filter")
 
     try:
-        df = get_safe_dataframe(sheet)
+        df = fetch_sheet_data()
         if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             out_df = df[df["구분"] == "출고"].copy()
@@ -698,10 +702,10 @@ with tab7:
     with ctrl4:
         st.write(" ")
         if st.button("🔄 수불부 새로고침", use_container_width=True):
-            st.cache_data.clear()
+            st.cache_data.clear() # 수동 캐시 초기화
 
     try:
-        df = get_safe_dataframe(sheet)
+        df = fetch_sheet_data()
         if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
             df = df[df["일자_parsed"].notnull()].copy()
