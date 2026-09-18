@@ -396,7 +396,7 @@ with tab3:
     current_recipe = DEFAULT_RECIPES.get(product_name, {})
     recipe_calc_rows = []
     for item_name, unit_kg in current_recipe.items():
-        total_needed_kg = round(unit_kg * prod_qty, 2)
+        total_needed_kg = round(unit_kg * prod_qty, 3)
         recipe_calc_rows.append({
             "원료명": item_name,
             "1개당 필요량 (kg)": unit_kg,
@@ -413,7 +413,7 @@ with tab3:
             "원료명": st.column_config.SelectboxColumn("원료명", options=RAW_ITEMS, required=True),
             "1개당 필요량 (kg)": st.column_config.NumberColumn("1개당 필요량 (kg)", format="%.3f"),
             "출고 수량 (개)": st.column_config.NumberColumn("수량 (개)", disabled=True),
-            "총 필요 중량 (kg)": st.column_config.NumberColumn("총 필요 중량 (kg)", format="%.2f")
+            "총 필요 중량 (kg)": st.column_config.NumberColumn("총 필요 중량 (kg)", format="%.3f")
         }
     )
 
@@ -687,7 +687,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (의미 명확화: 기준일 이월재고 및 정산 기말재고)
+# TAB 7: 수불부 (소수점 1자리 형식을 정밀하게 고정하여 표출)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -750,11 +750,11 @@ with tab7:
                 if init_stock != 0 or curr_in != 0 or curr_out != 0 or curr_loss != 0 or curr_stock != 0:
                     summary_rows.append({
                         "원료명": item,
-                        "전일재고 (kg)": round(init_stock, 1),
-                        "당일입고 (kg)": round(curr_in, 1),
-                        "당일사용 (kg)": round(curr_out, 1),
-                        "로스 (kg)": round(curr_loss, 1),
-                        "당일재고 (kg)": round(curr_stock, 1)
+                        "전일재고 (kg)": float(init_stock),
+                        "당일입고 (kg)": float(curr_in),
+                        "당일사용 (kg)": float(curr_out),
+                        "로스 (kg)": float(curr_loss),
+                        "당일재고 (kg)": float(curr_stock)
                     })
 
                 running_stock = init_stock
@@ -777,11 +777,11 @@ with tab7:
                         "일자_parsed": period_item.loc[idx, "일자_parsed"],
                         "구분": row_type,
                         "원료명": item,
-                        "전일재고 (kg)": round(prev_s, 1),
-                        "입고 (kg)": round(rec_in, 1),
-                        "사용 (kg)": round(rec_out, 1),
-                        "로스 (kg)": round(rec_loss, 1),
-                        "당일재고 (kg)": round(running_stock, 1),
+                        "전일재고 (kg)": float(prev_s),
+                        "입고 (kg)": float(rec_in),
+                        "사용 (kg)": float(rec_out),
+                        "로스 (kg)": float(rec_loss),
+                        "당일재고 (kg)": float(running_stock),
                         "거래처": str(row_vendor) if pd.notnull(row_vendor) else "-",
                         "비고": str(row_note) if pd.notnull(row_note) else "-"
                     })
@@ -803,7 +803,10 @@ with tab7:
                 m4.metric("정산 기말재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg", help="정산 종료일 기준 현재 남아있는 재고 총합")
                 st.markdown("---")
 
-                st.dataframe(subul_df, use_container_width=True)
+                # 명시적 소수점 1자리(%.1f) 포맷팅 적용
+                num_cols_summary = ["전일재고 (kg)", "당일입고 (kg)", "당일사용 (kg)", "로스 (kg)", "당일재고 (kg)"]
+                fmt_summary = {col: "{:.1f}" for col in num_cols_summary}
+                st.dataframe(subul_df.style.format(fmt_summary), use_container_width=True)
 
                 display_period = pd.DataFrame()
                 if all_history_rows:
@@ -817,15 +820,19 @@ with tab7:
                     ).drop(columns=["원료명_cat", "구분_cat", "일자_parsed"])
 
                     st.write("##### 🔍 선택 기간 일자별 상세 수불 내역 (날짜 ➔ 입고 우선 ➔ 품목 지정순)")
-                    st.dataframe(display_period, use_container_width=True)
+                    
+                    # 명시적 소수점 1자리(%.1f) 포맷팅 적용
+                    num_cols_detail = ["전일재고 (kg)", "입고 (kg)", "사용 (kg)", "로스 (kg)", "당일재고 (kg)"]
+                    fmt_detail = {col: "{:.1f}" for col in num_cols_detail}
+                    st.dataframe(display_period.style.format(fmt_detail), use_container_width=True)
 
                 b1, b2 = st.columns(2)
                 with b1:
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
-                        subul_df.to_excel(writer, index=False, sheet_name='품목별집계')
+                        subul_df.round(1).to_excel(writer, index=False, sheet_name='품목별집계')
                         if not display_period.empty:
-                            display_period.to_excel(writer, index=False, sheet_name='일별수불이력')
+                            display_period.round(1).to_excel(writer, index=False, sheet_name='일별수불이력')
                     
                     st.download_button(
                         label="📥 수불부 엑셀 다운로드 (집계표 + 상세 내역)",
@@ -835,7 +842,7 @@ with tab7:
                         use_container_width=True
                     )
                 with b2:
-                    render_full_subul_print(subul_df, display_period, period_title_str)
+                    render_full_subul_print(subul_df.round(1), display_period.round(1), period_title_str)
             else:
                 st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
         else:
