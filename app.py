@@ -41,7 +41,6 @@ def init_gspread():
     url = st.secrets["sheets"]["spreadsheet_url"]
     return client.open_by_url(url)
 
-# API 429 방지를 위해 시트 데이터 로드를 60초간 캐싱
 @st.cache_data(ttl=60)
 def fetch_sheet_data():
     doc = init_gspread()
@@ -78,7 +77,6 @@ def safe_parse_date(series):
 
 # ---------------------------------------------------------
 # 지정 순서 반영 인쇄 컴포넌트
-# [보고서 타이틀 > 정산기간 > 1.일자별 상세내역 > 2.품목별 집계표 > 3.기준일 이월/기말 총량 요약]
 # ---------------------------------------------------------
 def render_full_subul_print(df_summary, df_detail, period_str):
     tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
@@ -190,7 +188,7 @@ def render_clean_summary_print(df_summary, period_str):
     st.components.v1.html(html_content, height=45)
 
 # ---------------------------------------------------------
-# 2. 마스터 데이터 및 배합비 레시피 정의
+# 2. 마스터 데이터 및 완제품 목록 정의
 # ---------------------------------------------------------
 RAW_ITEMS = [
     "카이피라", "프릴아이스", "버터헤드", "레드오크", 
@@ -202,6 +200,9 @@ ITEMS = ["선택 안함"] + RAW_ITEMS
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
+# 출고 시 선택 가능한 완제품 목록
+FINISHED_PRODUCTS = ["선택 안함", "브런치빈 믹스 1kg", "쿠팡 당근 200(6ea)", "쿠팡 당근 400(8ea)"]
+
 DEFAULT_RECIPES = {
     "스윗밸런스 브런치빈 1kg": {
         "양상추": 0.6,
@@ -210,10 +211,10 @@ DEFAULT_RECIPES = {
         "프릴아이스": 0.1
     },
     "쿠팡 당근 200(6ea)": {
-        "당근": 0.2
+        "당근": 0.181
     },
     "쿠팡 당근 400(8ea)": {
-        "당근": 0.4
+        "당근": 0.363
     }
 }
 
@@ -295,7 +296,7 @@ with tab1:
                         sheet.append_row(row_data)
                         saved_count += 1
                 if saved_count > 0:
-                    st.cache_data.clear() # 캐시 초기화
+                    st.cache_data.clear()
                     st.success(f"✅ 총 {saved_count}개 입고 항목 구글 시트 저장 완료!")
                 else:
                     st.warning("⚠️ 선택된 품목이 없거나 입고 중량이 0kg인 항목만 있습니다.")
@@ -312,15 +313,18 @@ with tab1:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록
+# TAB 2: 출고(사용) 등록 (출고 거래처 옆 완제품 선택 옵션 추가)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록 (반품 시 -중량 입력)")
-    col_date2, col_vendor2, col_btn2 = st.columns([1.5, 1.5, 1])
+    
+    col_date2, col_vendor2, col_prod2, col_btn2 = st.columns([1.2, 1.3, 1.5, 0.8])
     with col_date2:
         record_date_out = st.date_input("출고일자", value=datetime.today(), key="out_multi_date")
     with col_vendor2:
         vendor_out = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_multi_vendor")
+    with col_prod2:
+        prod_out = st.selectbox("출고 제품 (선택사항)", FINISHED_PRODUCTS, key="out_multi_prod")
     with col_btn2:
         st.write(" ")
         if st.button("➕ 출고 행 추가", use_container_width=True):
@@ -352,12 +356,16 @@ with tab2:
                     itm = str(row["item"])
                     w = float(row["weight"])
                     if itm != "선택 안함" and w != 0:
-                        nt = str(row["note"])
+                        nt = str(row["note"]).strip()
+                        # 출고 제품을 선택한 경우 비고란에 자동 기록
+                        if prod_out != "선택 안함":
+                            nt = f"[{prod_out}] {nt}".strip()
+                        
                         row_data = [str(record_date_out), "출고", str(vendor_out), itm, float(w), "-", "-", nt]
                         sheet.append_row(row_data)
                         saved_count += 1
                 if saved_count > 0:
-                    st.cache_data.clear() # 캐시 초기화
+                    st.cache_data.clear()
                     st.success(f"✅ 총 {saved_count}개 출고 항목 구글 시트 저장 완료!")
                 else:
                     st.warning("⚠️ 선택된 품목이 없거나 출고 중량이 0kg인 항목만 있습니다.")
@@ -429,7 +437,7 @@ with tab3:
                     sheet.append_row(row_data)
                     saved_count += 1
             if saved_count > 0:
-                st.cache_data.clear() # 캐시 초기화
+                st.cache_data.clear()
                 st.success(f"✅ [{product_name} {prod_qty}개] 배합비 원재료 {saved_count}종 출고 저장 완료!")
             else:
                 st.warning("⚠️ 출고 중량이 0kg인 항목만 있습니다.")
@@ -467,7 +475,7 @@ with tab4:
                 if lw > 0:
                     row_data = [str(record_date), "로스", "자체폐기", itm, float(lw), "-", "-", str(note)]
                     sheet.append_row(row_data)
-                    st.cache_data.clear() # 캐시 초기화
+                    st.cache_data.clear()
                     st.success(f"✅ [로스 저장 완료] {itm} {lw}kg")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
@@ -702,7 +710,7 @@ with tab7:
     with ctrl4:
         st.write(" ")
         if st.button("🔄 수불부 새로고침", use_container_width=True):
-            st.cache_data.clear() # 수동 캐시 초기화
+            st.cache_data.clear()
 
     try:
         df = fetch_sheet_data()
@@ -734,7 +742,7 @@ with tab7:
                 prior_out = prior_df[prior_df["구분"] == "출고"]["수량_num"].sum()
                 prior_loss = prior_df[prior_df["구분"] == "로스"]["수량_num"].sum()
                 
-                init_stock = prior_in - prior_out - prior_loss  # 정산 시작 전일 기준 이월재고
+                init_stock = prior_in - prior_out - prior_loss
                 
                 period_item = item_df[
                     (item_df["일자_parsed"] >= s_date) & 
@@ -803,7 +811,6 @@ with tab7:
                 m4.metric("정산 기말재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg", help="정산 종료일 기준 현재 남아있는 재고 총합")
                 st.markdown("---")
 
-                # 명시적 소수점 1자리(%.1f) 포맷팅 적용
                 num_cols_summary = ["전일재고 (kg)", "당일입고 (kg)", "당일사용 (kg)", "로스 (kg)", "당일재고 (kg)"]
                 fmt_summary = {col: "{:.1f}" for col in num_cols_summary}
                 st.dataframe(subul_df.style.format(fmt_summary), use_container_width=True)
@@ -821,7 +828,6 @@ with tab7:
 
                     st.write("##### 🔍 선택 기간 일자별 상세 수불 내역 (날짜 ➔ 입고 우선 ➔ 품목 지정순)")
                     
-                    # 명시적 소수점 1자리(%.1f) 포맷팅 적용
                     num_cols_detail = ["전일재고 (kg)", "입고 (kg)", "사용 (kg)", "로스 (kg)", "당일재고 (kg)"]
                     fmt_detail = {col: "{:.1f}" for col in num_cols_detail}
                     st.dataframe(display_period.style.format(fmt_detail), use_container_width=True)
