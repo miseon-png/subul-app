@@ -1,3 +1,22 @@
+화면 우측 하단에 `정산 기간: 2026-09-01 ~ 2026-09-18` 문구와 스크립트 일부가 흰색 박스로 흘러나온 현상이 원인입니다.
+
+`st.components.v1.html()` 내부에 들어가는 자바스크립트 코드 중 `pWin.document.write('<div>정산 기간...`) 문장이 파이썬 string 파싱 과정에서 인쇄 버튼 영역 밖으로 유출되어 발생한 문제입니다.
+
+Streamlit의 iframe 보안 제약을 깨끗하게 해결하고 UI 상에 이상 문자열이 노출되는 것을 차단하기 위해 **독립 HTML 팝업 로직을 완전히 정돈한 전체 코드**를 제공합니다.
+
+---
+
+### 🛠️ 수수 수정 포인트
+
+1. **화면 상 문자열 유출 차단:** 파이썬 f-string과 자바스크립트 문자열의 충돌 요소를 모두 제거하여 UI 화면에는 녹색 인쇄 버튼만 깔끔하게 노출됩니다.
+2. **출력물에만 정산 기간 표기:** 인쇄/PDF 저장 버튼을 누를 때 생성되는 팝업 창 문서 내부 상단에만 `정산 기간: YYYY-MM-DD ~ YYYY-MM-DD` 문구가 나타납니다.
+3. **일별 수불부 상세 출력 완비:** 인쇄 팝업 창에 상단 요약 카드 + 품목별 집계 요약표 + **일자별 개별 수불 상세 내역(일별 수불부)** 전체가 깨끗하게 정렬되어 인쇄 창이 바로 나타납니다.
+
+---
+
+### 🛠️ 전체 완결 보정 코드 (`app.py`)
+
+```python
 import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
@@ -61,7 +80,7 @@ def safe_parse_date(series):
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 안전한 일별 수불 상세 내역 전용 인쇄 컴포넌트 (100% 출력 보장)
+# 화면 유출 오류 원천 차단형 인쇄 컴포넌트
 # ---------------------------------------------------------
 def render_full_subul_print(df_summary, df_detail, period_str):
     tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
@@ -69,69 +88,108 @@ def render_full_subul_print(df_summary, df_detail, period_str):
     tot_use = df_summary['당일사용 (kg)'].sum() if '당일사용 (kg)' in df_summary else 0
     tot_day = df_summary['당일재고 (kg)'].sum() if '당일재고 (kg)' in df_summary else 0
     
-    detail_html = df_detail.to_html(index=False, classes="print-table") if df_detail is not None and not df_detail.empty else "<p>상세 내역이 없습니다.</p>"
-    summary_html = df_summary.to_html(index=False, classes="print-table")
+    summary_html = df_summary.to_html(index=False, classes="print-table").replace("\n", " ").replace("'", "\\'")
+    detail_html = df_detail.to_html(index=False, classes="print-table").replace("\n", " ").replace("'", "\\'") if df_detail is not None and not df_detail.empty else "<p>상세 내역이 없습니다.</p>"
     
-    # HTML 이스케이프 보정
-    detail_clean = detail_html.replace('\n', ' ').replace("'", "\\'")
-    summary_clean = summary_html.replace('\n', ' ').replace("'", "\\'")
-    
-    btn_html = f"""
-    <div style="width:100%;">
-        <button onclick="
-            var pWin = window.open('', '_blank', 'width=1000,height=900');
-            pWin.document.write('<html><head><title>일자별 상세 수불부 보고서</title>');
-            pWin.document.write('<style>');
-            pWin.document.write('body {{ font-family: sans-serif; padding: 20px; color: #333; }}');
-            pWin.document.write('h2 {{ color: #1e3a8a; margin-bottom: 5px; }}');
-            pWin.document.write('.period {{ font-size: 14px; color: #475569; margin-bottom: 15px; font-weight: bold; }}');
-            pWin.document.write('.metric-table {{ width: 100%; margin-bottom: 20px; border-spacing: 8px; border-collapse: separate; }}');
-            pWin.document.write('.metric-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; text-align: center; }}');
-            pWin.document.write('.metric-title {{ font-size: 12px; color: #64748b; font-weight: bold; }}');
-            pWin.document.write('.metric-val {{ font-size: 15px; color: #0f172a; font-weight: bold; margin-top: 2px; }}');
-            pWin.document.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }}');
-            pWin.document.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: center; }}');
-            pWin.document.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
-            pWin.document.write('@media print {{ body {{ padding: 0; }} }}');
-            pWin.document.write('</style></head><body>');
-            pWin.document.write('<h2>📊 일자별 원재료 수불 상세 보고서</h2>');
-            pWin.document.write('<div class=\"period\">정산 기간: {period_str}</div>');
-            pWin.document.write('<table class=\"metric-table\"><tr><td class=\"metric-card\"><div class=\"metric-title\">총 전일재고</div><div class=\"metric-val\">{tot_prev:,.1f} kg</div></td><td class=\"metric-card\"><div class=\"metric-title\">총 입고량</div><div class=\"metric-val\">{tot_in:,.1f} kg</div></td><td class=\"metric-card\"><div class=\"metric-title\">총 사용량</div><div class=\"metric-val\">{tot_use:,.1f} kg</div></td><td class=\"metric-card\"><div class=\"metric-title\">현재 당일재고</div><div class=\"metric-val\">{tot_day:,.1f} kg</div></td></tr></table>');
-            pWin.document.write('<h3>📋 일자별 개별 수불 상세 내역</h3>');
-            pWin.document.write('{detail_clean}');
-            pWin.document.write('<h3 style=\"margin-top:30px;\">📊 품목별 수불 집계 요약표</h3>');
-            pWin.document.write('{summary_clean}');
-            pWin.document.write('</body></html>');
-            pWin.document.close();
-            pWin.focus();
-            setTimeout(function(){{ pWin.print(); }}, 500);
-        " style="width:100%; height:38px; background-color:#4CAF50; color:white; border:none; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer;">
-            🖨️ 일자별 수불 상세 내역 인쇄 / PDF 저장
-        </button>
-    </div>
+    # 텍스트 유출을 막는 팝업 스크립트 바인딩
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: sans-serif; margin: 0; padding: 0; }}
+            .btn {{
+                width: 100%;
+                height: 38px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+            }}
+        </style>
+        <script>
+            function runPrint() {{
+                var pWin = window.open('', '_blank', 'width=1000,height=900');
+                if (!pWin) {{
+                    alert('팝업 차단을 해제해 주세요.');
+                    return;
+                }}
+                var doc = pWin.document;
+                doc.open();
+                doc.write('<html><head><title>일자별 상세 수불부 보고서</title>');
+                doc.write('<style>body{{font-family:sans-serif;padding:20px;color:#333;}} h2{{color:#1e3a8a;margin-bottom:5px;}} .period{{font-size:14px;color:#475569;margin-bottom:15px;font-weight:bold;}} .metric-table{{width:100%;margin-bottom:20px;border-spacing:8px;border-collapse:separate;}} .metric-card{{background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:8px;text-align:center;}} .metric-title{{font-size:12px;color:#64748b;font-weight:bold;}} .metric-val{{font-size:15px;color:#0f172a;font-weight:bold;margin-top:2px;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background-color:#f1f5f9;font-weight:bold;}} @media print {{ body {{ padding: 0; }} }}</style></head><body>');
+                doc.write('<h2>📊 야채 원재료 수불 정산 보고서</h2>');
+                doc.write('<div class="period">정산 기간: {period_str}</div>');
+                doc.write('<table class="metric-table"><tr><td class="metric-card"><div class="metric-title">총 전일재고</div><div class="metric-val">{tot_prev:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 입고량</div><div class="metric-val">{tot_in:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 사용량</div><div class="metric-val">{tot_use:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">현재 당일재고</div><div class="metric-val">{tot_day:,.1f} kg</div></td></tr></table>');
+                doc.write('<h3>📋 일자별 개별 수불 상세 내역</h3>');
+                doc.write('{detail_html}');
+                doc.write('<h3 style="margin-top:30px;">📊 품목별 수불 집계 요약표</h3>');
+                doc.write('{summary_html}');
+                doc.write('</body></html>');
+                doc.close();
+                pWin.focus();
+                setTimeout(function(){{ pWin.print(); }}, 500);
+            }}
+        </script>
+    </head>
+    <body>
+        <button class="btn" onclick="runPrint()">🖨️ 일자별 수불 상세 내역 인쇄 / PDF 저장</button>
+    </body>
+    </html>
     """
-    st.components.v1.html(btn_html, height=45)
+    st.components.v1.html(html_content, height=45)
 
 def render_clean_summary_print(df_summary, period_str):
     table_html = df_summary.to_html(index=False, classes="print-table").replace('\n', ' ').replace("'", "\\'")
-    btn_html = f"""
-    <div style="width:100%;">
-        <button onclick="
-            var pWin = window.open('', '_blank', 'width=850,height=900');
-            pWin.document.write('<html><head><title>거래처 정산 집계표</title>');
-            pWin.document.write('<style>body{{font-family:sans-serif;padding:20px;}} h2{{color:#1e3a8a;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background:#f1f5f9;}}</style>');
-            pWin.document.write('</head><body>');
-            pWin.document.write('<h2>📋 거래처 정산 집계표</h2>');
-            pWin.document.write('<div><b>정산 기간:</b> {period_str}</div>');
-            pWin.document.write('{table_html}');
-            pWin.document.write('</body></html>');
-            pWin.document.close();
-            pWin.focus();
-            setTimeout(function(){{ pWin.print(); }}, 500);
-        " style="width:100%; height:38px; background-color:#4CAF50; color:white; border:none; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer;">🖨️ 정산 집계표 인쇄 / PDF 저장</button>
-    </div>
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: sans-serif; margin: 0; padding: 0; }}
+            .btn {{
+                width: 100%;
+                height: 38px;
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+            }}
+        </style>
+        <script>
+            function runPrint() {{
+                var pWin = window.open('', '_blank', 'width=850,height=900');
+                if (!pWin) {{
+                    alert('팝업 차단을 해제해 주세요.');
+                    return;
+                }}
+                var doc = pWin.document;
+                doc.open();
+                doc.write('<html><head><title>거래처 정산 집계표</title>');
+                doc.write('<style>body{{font-family:sans-serif;padding:20px;}} h2{{color:#1e3a8a;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background:#f1f5f9;}}</style>');
+                doc.write('</head><body>');
+                doc.write('<h2>📋 거래처 정산 집계표</h2>');
+                doc.write('<div><b>정산 기간:</b> {period_str}</div>');
+                doc.write('{table_html}');
+                doc.write('</body></html>');
+                doc.close();
+                pWin.focus();
+                setTimeout(function(){{ pWin.print(); }}, 500);
+            }}
+        </script>
+    </head>
+    <body>
+        <button class="btn" onclick="runPrint()">🖨️ 정산 집계표 인쇄 / PDF 저장</button>
+    </body>
+    </html>
     """
-    st.components.v1.html(btn_html, height=45)
+    st.components.v1.html(html_content, height=45)
 
 # ---------------------------------------------------------
 # 2. 마스터 데이터 및 배합비 레시피 정의
@@ -784,6 +842,7 @@ with tab7:
 
                 period_title_str = f"{s_date} ~ {e_date}"
 
+                # 화면 레이아웃 (정산 기간 표시 제거)
                 st.markdown("#### 📊 원재료 수불 집계 요약표")
                 
                 st.markdown("---")
@@ -826,7 +885,7 @@ with tab7:
                         use_container_width=True
                     )
                 with b2:
-                    # 안전한 일별 수불 상세 보고서 전용 인쇄 실행
+                    # 안전한 일별 상세 수불부 전용 인쇄 실행
                     render_full_subul_print(subul_df, display_period, period_title_str)
             else:
                 st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
@@ -835,3 +894,5 @@ with tab7:
             
     except Exception as e:
         st.error(f"수불부 계산 오류: {e}")
+
+```
