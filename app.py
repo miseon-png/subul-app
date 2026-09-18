@@ -240,7 +240,9 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 수불부 (재고 정산)"
 ])
 
-# TAB 1~6
+# ---------------------------------------------------------
+# TAB 1: 입고 등록
+# ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록 (반품 시 -중량 입력)")
     col_date, col_vendor, col_btn = st.columns([1.5, 1.5, 1])
@@ -295,8 +297,9 @@ with tab1:
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
+    # 저장이 완료된 후 또는 조회 시 알림 바로 아래에 최근 등록 데이터 8건 노출
     st.markdown("---")
-    st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 8건)")
+    st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
     try:
         recent_in_df = get_safe_dataframe(sheet)
         if not recent_in_df.empty:
@@ -304,6 +307,9 @@ with tab1:
     except Exception:
         st.caption("최근 기록 조회 중...")
 
+# ---------------------------------------------------------
+# TAB 2: 출고(사용) 등록
+# ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록 (반품 시 -중량 입력)")
     col_date2, col_vendor2, col_btn2 = st.columns([1.5, 1.5, 1])
@@ -353,8 +359,9 @@ with tab2:
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
+    # 저장이 완료된 후 최근 등록 데이터 8건 노출
     st.markdown("---")
-    st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 8건)")
+    st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
     try:
         recent_out_df = get_safe_dataframe(sheet)
         if not recent_out_df.empty:
@@ -362,6 +369,9 @@ with tab2:
     except Exception:
         st.caption("최근 기록 조회 중...")
 
+# ---------------------------------------------------------
+# TAB 3: 배합비 자동 출고 등록
+# ---------------------------------------------------------
 with tab3:
     st.subheader("🥗 배합비(레시피) 기반 자동 출고 등록")
     col_r1, col_r2, col_r3 = st.columns([1.5, 1.5, 1.5])
@@ -421,6 +431,19 @@ with tab3:
         except Exception as e:
             st.error(f"배합비 출고 저장 실패: {e}")
 
+    # 저장이 완료된 후 최근 등록 데이터 8건 노출
+    st.markdown("---")
+    st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
+    try:
+        recent_recipe_df = get_safe_dataframe(sheet)
+        if not recent_recipe_df.empty:
+            st.dataframe(recent_recipe_df.tail(8), use_container_width=True)
+    except Exception:
+        st.caption("최근 기록 조회 중...")
+
+# ---------------------------------------------------------
+# TAB 4: 로스 등록
+# ---------------------------------------------------------
 with tab4:
     st.subheader("🚮 로스(폐기/손실) 등록")
     with st.form("loss_form", clear_on_submit=True):
@@ -444,6 +467,19 @@ with tab4:
             except Exception as e:
                 st.error(f"저장 실패: {e}")
 
+    # 저장이 완료된 후 최근 등록 데이터 8건 노출
+    st.markdown("---")
+    st.markdown("##### 🔍 구글 시트 실시간 등록 내역 (최근 저장 데이터 8건)")
+    try:
+        recent_loss_df = get_safe_dataframe(sheet)
+        if not recent_loss_df.empty:
+            st.dataframe(recent_loss_df.tail(8), use_container_width=True)
+    except Exception:
+        st.caption("최근 기록 조회 중...")
+
+# ---------------------------------------------------------
+# TAB 5: 거래처별 입고 정산
+# ---------------------------------------------------------
 with tab5:
     st.subheader("📅 거래처별 입고 정산 내역")
     c1, c2, c3, c4 = st.columns(4)
@@ -550,6 +586,9 @@ with tab5:
     except Exception as e:
         st.error(f"거래처별 입고 정산 조회 오류: {e}")
 
+# ---------------------------------------------------------
+# TAB 6: 거래처별 출고 정산
+# ---------------------------------------------------------
 with tab6:
     st.subheader("🚚 거래처별 출고 정산 내역")
     o1, o2, o3, o4 = st.columns(4)
