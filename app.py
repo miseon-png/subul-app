@@ -68,16 +68,19 @@ def get_safe_dataframe(sheet_obj):
     return df
 
 def safe_parse_date(series):
-    parsed = pd.to_datetime(series, errors='coerce', format='mixed')
+    s = series.astype(str).str.strip()
+    parsed = pd.to_datetime(s, errors='coerce', format='mixed')
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 안전 인쇄 컴포넌트
+# 지정 순서 반영 인쇄 컴포넌트
+# [보고서 타이틀 > 정산기간 > 1.일자별 상세내역 > 2.품목별 집계표 > 3.기준일 이월/기말 총량 요약]
 # ---------------------------------------------------------
 def render_full_subul_print(df_summary, df_detail, period_str):
     tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
     tot_in = df_summary['당일입고 (kg)'].sum() if '당일입고 (kg)' in df_summary else 0
     tot_use = df_summary['당일사용 (kg)'].sum() if '당일사용 (kg)' in df_summary else 0
+    tot_loss = df_summary['로스 (kg)'].sum() if '로스 (kg)' in df_summary else 0
     tot_day = df_summary['당일재고 (kg)'].sum() if '당일재고 (kg)' in df_summary else 0
     
     summary_html = df_summary.to_html(index=False, classes="print-table").replace("\n", " ").replace("'", "\\'")
@@ -111,14 +114,15 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 var doc = pWin.document;
                 doc.open();
                 doc.write('<html><head><title>일자별 상세 수불부 보고서</title>');
-                doc.write('<style>body{{font-family:sans-serif;padding:20px;color:#333;}} h2{{color:#1e3a8a;margin-bottom:5px;}} .period{{font-size:14px;color:#475569;margin-bottom:15px;font-weight:bold;}} .metric-table{{width:100%;margin-bottom:20px;border-spacing:8px;border-collapse:separate;}} .metric-card{{background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:8px;text-align:center;}} .metric-title{{font-size:12px;color:#64748b;font-weight:bold;}} .metric-val{{font-size:15px;color:#0f172a;font-weight:bold;margin-top:2px;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background-color:#f1f5f9;font-weight:bold;}} @media print {{ body {{ padding: 0; }} }}</style></head><body>');
+                doc.write('<style>body{{font-family:sans-serif;padding:20px;color:#333;}} h2{{color:#1e3a8a;margin-bottom:5px;}} h3{{margin-top:25px;margin-bottom:8px;color:#334155;border-bottom:2px solid #cbd5e1;padding-bottom:4px;}} .period{{font-size:14px;color:#475569;margin-bottom:20px;font-weight:bold;}} .metric-table{{width:100%;margin-top:20px;border-spacing:8px;border-collapse:separate;}} .metric-card{{background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:8px;text-align:center;}} .metric-title{{font-size:12px;color:#64748b;font-weight:bold;}} .metric-val{{font-size:15px;color:#0f172a;font-weight:bold;margin-top:2px;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background-color:#f1f5f9;font-weight:bold;}} @media print {{ body {{ padding: 0; }} }}</style></head><body>');
                 doc.write('<h2>📊 야채 원재료 수불 정산 보고서</h2>');
                 doc.write('<div class="period">정산 기간: {period_str}</div>');
-                doc.write('<table class="metric-table"><tr><td class="metric-card"><div class="metric-title">총 전일재고</div><div class="metric-val">{tot_prev:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 입고량</div><div class="metric-val">{tot_in:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 사용량</div><div class="metric-val">{tot_use:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">현재 당일재고</div><div class="metric-val">{tot_day:,.1f} kg</div></td></tr></table>');
-                doc.write('<h3>📋 일자별 개별 수불 상세 내역</h3>');
+                doc.write('<h3>1. 일자별 개별 수불 상세 내역</h3>');
                 doc.write('{detail_html}');
-                doc.write('<h3 style="margin-top:30px;">📊 품목별 수불 집계 요약표</h3>');
+                doc.write('<h3>2. 품목별 수불 집계 요약표</h3>');
                 doc.write('{summary_html}');
+                doc.write('<h3 style="margin-top:30px;">3. 정산 기간 총량 집계 요약</h3>');
+                doc.write('<table class="metric-table"><tr><td class="metric-card"><div class="metric-title">기준일 이월재고 (정산시작 전일)</div><div class="metric-val">{tot_prev:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 입고량</div><div class="metric-val">{tot_in:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 출고/로스 사용량</div><div class="metric-val">{(tot_use + tot_loss):,.1f} kg</div></td><td class="metric-card"><div class="metric-title">정산 기말재고 (정산종료일)</div><div class="metric-val">{tot_day:,.1f} kg</div></td></tr></table>');
                 doc.write('</body></html>');
                 doc.close();
                 pWin.focus();
@@ -640,7 +644,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (전일재고 완전 자동 연산 및 단일 수불 연산 엔진)
+# TAB 7: 수불부 (의미 명확화: 기준일 이월재고 및 정산 기말재고)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -661,16 +665,15 @@ with tab7:
         df = get_safe_dataframe(sheet)
         if not df.empty and "일자" in df.columns:
             df["일자_parsed"] = safe_parse_date(df["일자"])
+            df = df[df["일자_parsed"].notnull()].copy()
             df["수량_num"] = pd.to_numeric(df["수량(kg)"].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
             
-            # 정렬용 카테고리 정의
             item_order = pd.CategoricalDtype(categories=RAW_ITEMS, ordered=True)
             type_order = pd.CategoricalDtype(categories=["입고", "로스", "출고"], ordered=True)
             
             df["원료명_cat"] = df["원료명"].astype(item_order)
             df["구분_cat"] = df["구분"].astype(type_order)
             
-            # 1. 시트 전체 원천 데이터 완전 정렬: 날짜 오름차순 ➔ 입고 우선(입고 -> 로스 -> 출고) ➔ 품목 지정순
             df = df.sort_values(by=["일자_parsed", "구분_cat", "원료명_cat"], ascending=[True, True, True])
 
             summary_rows = []
@@ -678,33 +681,29 @@ with tab7:
 
             target_items = [subul_item_filter] if subul_item_filter != "전체" else RAW_ITEMS
 
-            # 2. 품목별로 과거 시환부터 전체 재고 흐름을 완벽 계산 (Running Stock 연산)
             for item in target_items:
                 item_df = df[df["원료명"] == item].copy()
-                
-                # 정산 시작일 이전 이월재고(전일재고) 계산
+                if item_df.empty:
+                    continue
+
                 prior_df = item_df[item_df["일자_parsed"] < s_date]
                 prior_in = prior_df[prior_df["구분"] == "입고"]["수량_num"].sum()
                 prior_out = prior_df[prior_df["구분"] == "출고"]["수량_num"].sum()
                 prior_loss = prior_df[prior_df["구분"] == "로스"]["수량_num"].sum()
                 
-                init_stock = prior_in - prior_out - prior_loss  # 정산 시작일 기준 전일재고
+                init_stock = prior_in - prior_out - prior_loss  # 정산 시작 전일 기준 이월재고
                 
-                # 전체 거래 흐름에 대해 재고 연속 연산 수행
-                running_stock = init_stock
-                
-                # 정산 기간 내 거래 내역
                 period_item = item_df[
                     (item_df["일자_parsed"] >= s_date) & 
                     (item_df["일자_parsed"] <= e_date)
                 ].copy()
-                
+
                 curr_in = period_item[period_item["구분"] == "입고"]["수량_num"].sum()
                 curr_out = period_item[period_item["구분"] == "출고"]["수량_num"].sum()
                 curr_loss = period_item[period_item["구분"] == "로스"]["수량_num"].sum()
                 
                 curr_stock = init_stock + curr_in - curr_out - curr_loss
-                
+
                 if init_stock != 0 or curr_in != 0 or curr_out != 0 or curr_loss != 0 or curr_stock != 0:
                     summary_rows.append({
                         "원료명": item,
@@ -715,30 +714,33 @@ with tab7:
                         "당일재고 (kg)": round(curr_stock, 1)
                     })
 
-                # 기간 내 일자별 상세 거래 발생 흐름 기록
-                for idx, row in period_item.iterrows():
-                    rec_in = row["수량_num"] if row["구분"] == "입고" else 0.0
-                    rec_out = row["수량_num"] if row["구분"] == "출고" else 0.0
-                    rec_loss = row["수량_num"] if row["구분"] == "로스" else 0.0
-                    
+                running_stock = init_stock
+                for idx in period_item.index:
+                    row_date = period_item.loc[idx, "일자"]
+                    row_type = period_item.loc[idx, "구분"]
+                    row_qty = period_item.loc[idx, "수량_num"]
+                    row_vendor = period_item.loc[idx, "거래처"] if "거래처" in period_item.columns else "-"
+                    row_note = period_item.loc[idx, "비고"] if "비고" in period_item.columns else "-"
+
+                    rec_in = row_qty if row_type == "입고" else 0.0
+                    rec_out = row_qty if row_type == "출고" else 0.0
+                    rec_loss = row_qty if row_type == "로스" else 0.0
+
                     prev_s = running_stock
                     running_stock = running_stock + rec_in - rec_out - rec_loss
-                    
-                    v_vendor = row["거래처"].iloc[0] if isinstance(row.get("거래처"), pd.Series) else row.get("거래처", "-")
-                    v_note = row["비고"].iloc[0] if isinstance(row.get("비고"), pd.Series) else row.get("비고", "-")
 
                     all_history_rows.append({
-                        "일자": row["일자"],
-                        "일자_parsed": row["일자_parsed"],
-                        "구분": row["구분"],
+                        "일자": row_date,
+                        "일자_parsed": period_item.loc[idx, "일자_parsed"],
+                        "구분": row_type,
                         "원료명": item,
                         "전일재고 (kg)": round(prev_s, 1),
                         "입고 (kg)": round(rec_in, 1),
                         "사용 (kg)": round(rec_out, 1),
                         "로스 (kg)": round(rec_loss, 1),
                         "당일재고 (kg)": round(running_stock, 1),
-                        "거래처": str(v_vendor) if pd.notnull(v_vendor) else "-",
-                        "비고": str(v_note) if pd.notnull(v_note) else "-"
+                        "거래처": str(row_vendor) if pd.notnull(row_vendor) else "-",
+                        "비고": str(row_note) if pd.notnull(row_note) else "-"
                     })
 
             if summary_rows:
@@ -752,10 +754,10 @@ with tab7:
                 
                 st.markdown("---")
                 m1, m2, m3, m4 = st.columns(4)
-                m1.metric("총 전일재고", f"{subul_df['전일재고 (kg)'].sum():,.1f} kg")
+                m1.metric("기준일 이월재고", f"{subul_df['전일재고 (kg)'].sum():,.1f} kg", help="정산 시작일 전일까지 쌓인 이월재고 총합")
                 m2.metric("총 입고량", f"{subul_df['당일입고 (kg)'].sum():,.1f} kg")
-                m3.metric("총 사용량", f"{subul_df['당일사용 (kg)'].sum():,.1f} kg")
-                m4.metric("현재 당일재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg")
+                m3.metric("총 사용량", f"{(subul_df['당일사용 (kg)'].sum() + subul_df['로스 (kg)'].sum()):,.1f} kg", help="출고 사용량과 로스량의 합계")
+                m4.metric("정산 기말재고", f"{subul_df['당일재고 (kg)'].sum():,.1f} kg", help="정산 종료일 기준 현재 남아있는 재고 총합")
                 st.markdown("---")
 
                 st.dataframe(subul_df, use_container_width=True)
@@ -766,14 +768,13 @@ with tab7:
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
                     display_period["구분_cat"] = display_period["구분"].astype(type_order)
                     
-                    # 일자별 개별 수불 상세 완벽 정렬: 1) 날짜 오름차순 ➔ 2) 입고 우선(입고->로스->출고) ➔ 3) 품목 지정순
                     display_period = display_period.sort_values(
                         by=["일자_parsed", "구분_cat", "원료명_cat"], 
                         ascending=[True, True, True]
                     ).drop(columns=["원료명_cat", "구분_cat", "일자_parsed"])
 
-                    with st.expander("🔍 일자별 개별 수불 상세 내역 보기 (날짜 ➔ 입고 우선 ➔ 품목 지정순)", expanded=True):
-                        st.dataframe(display_period, use_container_width=True)
+                    st.write("##### 🔍 선택 기간 일자별 상세 수불 내역 (날짜 ➔ 입고 우선 ➔ 품목 지정순)")
+                    st.dataframe(display_period, use_container_width=True)
 
                 b1, b2 = st.columns(2)
                 with b1:
