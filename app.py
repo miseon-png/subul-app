@@ -197,7 +197,7 @@ RAW_ITEMS = [
 ]
 ITEMS = ["선택 안함"] + RAW_ITEMS
 
-INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "기타"]
+INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
 # 출고 시 선택 가능한 완제품 목록
