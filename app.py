@@ -76,7 +76,7 @@ def safe_parse_date(series):
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 지정 순서 반영 인쇄 컴포넌트 (줄바꿈 방지 및 간격 조절 적용)
+# 페이지마다 상단 제목 및 정산기간 고정 인쇄 컴포넌트
 # ---------------------------------------------------------
 def render_full_subul_print(df_summary, df_detail, period_str):
     tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
@@ -117,32 +117,55 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 doc.open();
                 doc.write('<html><head><title>일자별 상세 수불부 보고서</title>');
                 doc.write('<style>');
-                doc.write('body {{ font-family: sans-serif; padding: 20px; color: #333; }}');
-                doc.write('h2 {{ color: #1e3a8a; margin-bottom: 5px; }}');
-                doc.write('h3 {{ margin-top: 25px; margin-bottom: 8px; color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 4px; }}');
-                doc.write('.period {{ font-size: 14px; color: #475569; margin-bottom: 20px; font-weight: bold; }}');
-                doc.write('.metric-table {{ width: 100%; margin-top: 20px; border-spacing: 8px; border-collapse: separate; }}');
-                doc.write('.metric-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; text-align: center; }}');
-                doc.write('.metric-title {{ font-size: 12px; color: #64748b; font-weight: bold; }}');
-                doc.write('.metric-val {{ font-size: 15px; color: #0f172a; font-weight: bold; margin-top: 2px; }}');
+                doc.write('body {{ font-family: sans-serif; padding: 10px; color: #333; }}');
+                doc.write('h2 {{ color: #1e3a8a; margin: 0 0 5px 0; font-size: 20px; }}');
+                doc.write('h3 {{ margin-top: 15px; margin-bottom: 8px; color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 4px; font-size: 14px; }}');
+                doc.write('.period {{ font-size: 13px; color: #475569; margin-bottom: 10px; font-weight: bold; }}');
+                doc.write('.metric-table {{ width: 100%; margin-top: 15px; border-spacing: 6px; border-collapse: separate; }}');
+                doc.write('.metric-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px; text-align: center; }}');
+                doc.write('.metric-title {{ font-size: 11px; color: #64748b; font-weight: bold; }}');
+                doc.write('.metric-val {{ font-size: 14px; color: #0f172a; font-weight: bold; margin-top: 2px; }}');
                 
-                /* 테이블 스타일 설정 (줄바꿈 방지 및 여백 조절) */
-                doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }}');
+                /* 테이블 스타일 설정 (줄바꿈 방지) */
+                doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }}');
                 doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 5px 4px; text-align: center; white-space: nowrap; }}');
                 doc.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
-                /* 비고(마지막 열)는 긴 텍스트 입력을 고려하여 자연스러운 줄바꿈 허용 */
                 doc.write('.print-table td:last-child {{ white-space: normal; text-align: left; padding-left: 6px; }}');
                 
-                doc.write('@media print {{ body {{ padding: 0; }} }}');
+                /* 매 페이지 상단 제목 고정을 위한 CSS 설정 */
+                doc.write('@media print {{');
+                doc.write('  .repeat-header {{ display: table-header-group; }}');
+                doc.write('  thead {{ display: table-header-group; }}');
+                doc.write('  tr {{ page-break-inside: avoid; }}');
+                doc.write('  body {{ padding: 0; }}');
+                doc.write('}}');
+                
                 doc.write('</style></head><body>');
-                doc.write('<h2>📊 야채 원재료 수불 정산 보고서</h2>');
-                doc.write('<div class="period">정산 기간: {period_str}</div>');
-                doc.write('<h3>1. 일자별 개별 수불 상세 내역</h3>');
-                doc.write('{detail_html}');
-                doc.write('<h3>2. 품목별 수불 집계 요약표</h3>');
-                doc.write('{summary_html}');
-                doc.write('<h3 style="margin-top:30px;">3. 정산 기간 총량 집계 요약</h3>');
-                doc.write('<table class="metric-table"><tr><td class="metric-card"><div class="metric-title">기준일 이월재고 (정산시작 전일)</div><div class="metric-val">{tot_prev:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 입고량</div><div class="metric-val">{tot_in:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 출고/로스 사용량</div><div class="metric-val">{(tot_use + tot_loss):,.1f} kg</div></td><td class="metric-card"><div class="metric-title">정산 기말재고 (정산종료일)</div><div class="metric-val">{tot_day:,.1f} kg</div></td></tr></table>');
+                
+                /* 페이지마다 헤더를 반복 출력하기 위한 구조 설계 */
+                doc.write('<table style="width:100%; border-collapse:collapse; border:none;">');
+                doc.write('  <thead class="repeat-header">');
+                doc.write('    <tr>');
+                doc.write('      <th style="border:none; background:transparent; padding:0; text-align:left;">');
+                doc.write('        <h2>📊 야채 원재료 수불 정산 보고서</h2>');
+                doc.write('        <div class="period">정산 기간: {period_str}</div>');
+                doc.write('      </th>');
+                doc.write('    </tr>');
+                doc.write('  </thead>');
+                doc.write('  <tbody>');
+                doc.write('    <tr>');
+                doc.write('      <td style="border:none; padding:0; text-align:left;">');
+                doc.write('        <h3>1. 일자별 개별 수불 상세 내역</h3>');
+                doc.write('        {detail_html}');
+                doc.write('        <h3>2. 품목별 수불 집계 요약표</h3>');
+                doc.write('        {summary_html}');
+                doc.write('        <h3 style="margin-top:20px;">3. 정산 기간 총량 집계 요약</h3>');
+                doc.write('        <table class="metric-table"><tr><td class="metric-card"><div class="metric-title">기준일 이월재고 (정산시작 전일)</div><div class="metric-val">{tot_prev:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 입고량</div><div class="metric-val">{tot_in:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 출고/로스 사용량</div><div class="metric-val">{(tot_use + tot_loss):,.1f} kg</div></td><td class="metric-card"><div class="metric-title">정산 기말재고 (정산종료일)</div><div class="metric-val">{tot_day:,.1f} kg</div></td></tr></table>');
+                doc.write('      </td>');
+                doc.write('    </tr>');
+                doc.write('  </tbody>');
+                doc.write('</table>');
+                
                 doc.write('</body></html>');
                 doc.close();
                 pWin.focus();
@@ -189,16 +212,25 @@ def render_clean_summary_print(df_summary, period_str):
                 doc.write('<html><head><title>거래처 정산 집계표</title>');
                 doc.write('<style>');
                 doc.write('body {{ font-family: sans-serif; padding: 20px; }}');
-                doc.write('h2 {{ color: #1e3a8a; }}');
+                doc.write('h2 {{ color: #1e3a8a; margin: 0 0 5px 0; }}');
                 doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }}');
                 doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: center; white-space: nowrap; }}');
                 doc.write('.print-table th {{ background: #f1f5f9; }}');
                 doc.write('.print-table td:last-child {{ white-space: normal; text-align: left; }}');
+                doc.write('@media print {{ thead {{ display: table-header-group; }} tr {{ page-break-inside: avoid; }} }}');
                 doc.write('</style>');
                 doc.write('</head><body>');
-                doc.write('<h2>📋 거래처 정산 집계표</h2>');
-                doc.write('<div><b>정산 기간:</b> {period_str}</div>');
-                doc.write('{table_html}');
+                doc.write('<table style="width:100%; border-collapse:collapse;">');
+                doc.write('  <thead>');
+                doc.write('    <tr><th style="border:none; background:transparent; text-align:left; padding:0;">');
+                doc.write('      <h2>📋 거래처 정산 집계표</h2>');
+                doc.write('      <div style="margin-bottom:10px;"><b>정산 기간:</b> {period_str}</div>');
+                doc.write('    </th></tr>');
+                doc.write('  </thead>');
+                doc.write('  <tbody>');
+                doc.write('    <tr><td style="border:none; padding:0;">{table_html}</td></tr>');
+                doc.write('  </tbody>');
+                doc.write('</table>');
                 doc.close();
                 pWin.focus();
                 setTimeout(function(){{ pWin.print(); }}, 500);
@@ -225,7 +257,6 @@ ITEMS = ["선택 안함"] + RAW_ITEMS
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
 
-# 출고 시 선택 가능한 완제품 목록
 FINISHED_PRODUCTS = ["선택 안함", "브런치빈 믹스 1kg", "쿠팡 당근 200(6ea)", "쿠팡 당근 400(8ea)"]
 
 DEFAULT_RECIPES = {
