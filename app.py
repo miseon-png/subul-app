@@ -76,7 +76,7 @@ def safe_parse_date(series):
     return parsed.dt.date
 
 # ---------------------------------------------------------
-# 지정 순서 반영 인쇄 컴포넌트
+# 지정 순서 반영 인쇄 컴포넌트 (줄바꿈 방지 및 간격 조절 적용)
 # ---------------------------------------------------------
 def render_full_subul_print(df_summary, df_detail, period_str):
     tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
@@ -108,7 +108,7 @@ def render_full_subul_print(df_summary, df_detail, period_str):
         </style>
         <script>
             function runPrint() {{
-                var pWin = window.open('', '_blank', 'width=1000,height=900');
+                var pWin = window.open('', '_blank', 'width=1050,height=900');
                 if (!pWin) {{
                     alert('팝업 차단을 해제해 주세요.');
                     return;
@@ -116,7 +116,25 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 var doc = pWin.document;
                 doc.open();
                 doc.write('<html><head><title>일자별 상세 수불부 보고서</title>');
-                doc.write('<style>body{{font-family:sans-serif;padding:20px;color:#333;}} h2{{color:#1e3a8a;margin-bottom:5px;}} h3{{margin-top:25px;margin-bottom:8px;color:#334155;border-bottom:2px solid #cbd5e1;padding-bottom:4px;}} .period{{font-size:14px;color:#475569;margin-bottom:20px;font-weight:bold;}} .metric-table{{width:100%;margin-top:20px;border-spacing:8px;border-collapse:separate;}} .metric-card{{background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;padding:8px;text-align:center;}} .metric-title{{font-size:12px;color:#64748b;font-weight:bold;}} .metric-val{{font-size:15px;color:#0f172a;font-weight:bold;margin-top:2px;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:11px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background-color:#f1f5f9;font-weight:bold;}} @media print {{ body {{ padding: 0; }} }}</style></head><body>');
+                doc.write('<style>');
+                doc.write('body {{ font-family: sans-serif; padding: 20px; color: #333; }}');
+                doc.write('h2 {{ color: #1e3a8a; margin-bottom: 5px; }}');
+                doc.write('h3 {{ margin-top: 25px; margin-bottom: 8px; color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 4px; }}');
+                doc.write('.period {{ font-size: 14px; color: #475569; margin-bottom: 20px; font-weight: bold; }}');
+                doc.write('.metric-table {{ width: 100%; margin-top: 20px; border-spacing: 8px; border-collapse: separate; }}');
+                doc.write('.metric-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; text-align: center; }}');
+                doc.write('.metric-title {{ font-size: 12px; color: #64748b; font-weight: bold; }}');
+                doc.write('.metric-val {{ font-size: 15px; color: #0f172a; font-weight: bold; margin-top: 2px; }}');
+                
+                /* 테이블 스타일 설정 (줄바꿈 방지 및 여백 조절) */
+                doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }}');
+                doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 5px 4px; text-align: center; white-space: nowrap; }}');
+                doc.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
+                /* 비고(마지막 열)는 긴 텍스트 입력을 고려하여 자연스러운 줄바꿈 허용 */
+                doc.write('.print-table td:last-child {{ white-space: normal; text-align: left; padding-left: 6px; }}');
+                
+                doc.write('@media print {{ body {{ padding: 0; }} }}');
+                doc.write('</style></head><body>');
                 doc.write('<h2>📊 야채 원재료 수불 정산 보고서</h2>');
                 doc.write('<div class="period">정산 기간: {period_str}</div>');
                 doc.write('<h3>1. 일자별 개별 수불 상세 내역</h3>');
@@ -169,7 +187,14 @@ def render_clean_summary_print(df_summary, period_str):
                 var doc = pWin.document;
                 doc.open();
                 doc.write('<html><head><title>거래처 정산 집계표</title>');
-                doc.write('<style>body{{font-family:sans-serif;padding:20px;}} h2{{color:#1e3a8a;}} .print-table{{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}} .print-table th,.print-table td{{border:1px solid #cbd5e1;padding:6px;text-align:center;}} .print-table th{{background:#f1f5f9;}}</style>');
+                doc.write('<style>');
+                doc.write('body {{ font-family: sans-serif; padding: 20px; }}');
+                doc.write('h2 {{ color: #1e3a8a; }}');
+                doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }}');
+                doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: center; white-space: nowrap; }}');
+                doc.write('.print-table th {{ background: #f1f5f9; }}');
+                doc.write('.print-table td:last-child {{ white-space: normal; text-align: left; }}');
+                doc.write('</style>');
                 doc.write('</head><body>');
                 doc.write('<h2>📋 거래처 정산 집계표</h2>');
                 doc.write('<div><b>정산 기간:</b> {period_str}</div>');
@@ -313,7 +338,7 @@ with tab1:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록 (출고 거래처 옆 완제품 선택 옵션 추가)
+# TAB 2: 출고(사용) 등록
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록 (반품 시 -중량 입력)")
@@ -357,7 +382,6 @@ with tab2:
                     w = float(row["weight"])
                     if itm != "선택 안함" and w != 0:
                         nt = str(row["note"]).strip()
-                        # 출고 제품을 선택한 경우 비고란에 자동 기록
                         if prod_out != "선택 안함":
                             nt = f"[{prod_out}] {nt}".strip()
                         
