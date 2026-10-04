@@ -129,7 +129,8 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }}');
                 doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 5px 4px; text-align: center; white-space: nowrap; }}');
                 doc.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
-                doc.write('.print-table td:last-child {{ white-space: normal; text-align: left; padding-left: 6px; }}');
+                /* 비고(마지막 열) 가운데 정렬 적용 및 필요시 자연스러운 줄바꿈 유지 */
+                doc.write('.print-table td:last-child {{ white-space: normal; text-align: center; padding: 5px 6px; }}');
                 
                 doc.write('@media print {{');
                 doc.write('  .repeat-header {{ display: table-header-group; }}');
@@ -213,7 +214,7 @@ def render_clean_summary_print(df_summary, period_str):
                 doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }}');
                 doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: center; white-space: nowrap; }}');
                 doc.write('.print-table th {{ background: #f1f5f9; }}');
-                doc.write('.print-table td:last-child {{ white-space: normal; text-align: left; }}');
+                doc.write('.print-table td:last-child {{ white-space: normal; text-align: center; }}');
                 doc.write('@media print {{ thead {{ display: table-header-group; }} tr {{ page-break-inside: avoid; }} }}');
                 doc.write('</style>');
                 doc.write('</head><body>');
@@ -254,7 +255,7 @@ ITEMS = ["선택 안함"] + RAW_ITEMS
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡", "기타"]
 
-# 출고 거래처별 매칭 완제품 정의 (기본 '선택 안함' 포함 처리)
+# 출고 거래처별 매칭 완제품 정의
 VENDOR_PRODUCT_MAP = {
     "스윗밸런스": ["브런치빈 믹스 1kg"],
     "쿠팡": ["쿠팡 당근 200(6ea)", "쿠팡 당근 400(8ea)"],
@@ -372,7 +373,7 @@ with tab1:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록 (거래처별 매칭 완제품 자동 필터링)
+# TAB 2: 출고(사용) 등록
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록 (반품 시 -중량 입력)")
@@ -383,7 +384,6 @@ with tab2:
     with col_vendor2:
         vendor_out = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_multi_vendor")
     
-    # 선택된 거래처 매칭 완제품에 '선택 안함'을 항상 가장 앞에 추가
     matched_prods = VENDOR_PRODUCT_MAP.get(vendor_out, ["선택 안함"])
     if "선택 안함" not in matched_prods:
         available_products = ["선택 안함"] + matched_prods
