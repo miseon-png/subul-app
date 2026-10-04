@@ -126,13 +126,11 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 doc.write('.metric-title {{ font-size: 11px; color: #64748b; font-weight: bold; }}');
                 doc.write('.metric-val {{ font-size: 14px; color: #0f172a; font-weight: bold; margin-top: 2px; }}');
                 
-                /* 테이블 스타일 설정 (줄바꿈 방지) */
                 doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }}');
                 doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 5px 4px; text-align: center; white-space: nowrap; }}');
                 doc.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
                 doc.write('.print-table td:last-child {{ white-space: normal; text-align: left; padding-left: 6px; }}');
                 
-                /* 매 페이지 상단 제목 고정을 위한 CSS 설정 */
                 doc.write('@media print {{');
                 doc.write('  .repeat-header {{ display: table-header-group; }}');
                 doc.write('  thead {{ display: table-header-group; }}');
@@ -142,7 +140,6 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 
                 doc.write('</style></head><body>');
                 
-                /* 페이지마다 헤더를 반복 출력하기 위한 구조 설계 */
                 doc.write('<table style="width:100%; border-collapse:collapse; border:none;">');
                 doc.write('  <thead class="repeat-header">');
                 doc.write('    <tr>');
@@ -255,9 +252,15 @@ RAW_ITEMS = [
 ITEMS = ["선택 안함"] + RAW_ITEMS
 
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
-OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡"]
+OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡", "기타"]
 
-FINISHED_PRODUCTS = ["선택 안함", "브런치빈 믹스 1kg", "쿠팡 당근 200(6ea)", "쿠팡 당근 400(8ea)"]
+# 출고 거래처별 매칭 완제품 정의 (기본 '선택 안함' 포함 처리)
+VENDOR_PRODUCT_MAP = {
+    "스윗밸런스": ["브런치빈 믹스 1kg"],
+    "쿠팡": ["쿠팡 당근 200(6ea)", "쿠팡 당근 400(8ea)"],
+    "나무숲": ["선택 안함"],
+    "기타": ["선택 안함"]
+}
 
 DEFAULT_RECIPES = {
     "스윗밸런스 브런치빈 1kg": {
@@ -369,7 +372,7 @@ with tab1:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 2: 출고(사용) 등록
+# TAB 2: 출고(사용) 등록 (거래처별 매칭 완제품 자동 필터링)
 # ---------------------------------------------------------
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록 (반품 시 -중량 입력)")
@@ -379,8 +382,16 @@ with tab2:
         record_date_out = st.date_input("출고일자", value=datetime.today(), key="out_multi_date")
     with col_vendor2:
         vendor_out = st.selectbox("출고 거래처", OUTBOUND_VENDORS, key="out_multi_vendor")
+    
+    # 선택된 거래처 매칭 완제품에 '선택 안함'을 항상 가장 앞에 추가
+    matched_prods = VENDOR_PRODUCT_MAP.get(vendor_out, ["선택 안함"])
+    if "선택 안함" not in matched_prods:
+        available_products = ["선택 안함"] + matched_prods
+    else:
+        available_products = matched_prods
+
     with col_prod2:
-        prod_out = st.selectbox("출고 제품 (선택사항)", FINISHED_PRODUCTS, key="out_multi_prod")
+        prod_out = st.selectbox("출고 제품 (선택사항)", available_products, key="out_multi_prod")
     with col_btn2:
         st.write(" ")
         if st.button("➕ 출고 행 추가", use_container_width=True):
