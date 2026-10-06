@@ -78,6 +78,7 @@ def safe_parse_date(series):
 # ---------------------------------------------------------
 # 페이지마다 상단 제목 및 정산기간 고정 인쇄 컴포넌트
 # ---------------------------------------------------------
+# [버전 1] 거래처 포함 수불부 인쇄
 def render_full_subul_print(df_summary, df_detail, period_str):
     tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
     tot_in = df_summary['당일입고 (kg)'].sum() if '당일입고 (kg)' in df_summary else 0
@@ -101,10 +102,11 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 color: white;
                 border: none;
                 border-radius: 8px;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: bold;
                 cursor: pointer;
             }}
+            .btn:hover {{ background-color: #45a049; }}
         </style>
         <script>
             function runPrint() {{
@@ -115,7 +117,7 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 }}
                 var doc = pWin.document;
                 doc.open();
-                doc.write('<html><head><title>일자별 상세 수불부 보고서</title>');
+                doc.write('<html><head><title>일자별 상세 수불부 보고서 (거래처 포함)</title>');
                 doc.write('<style>');
                 doc.write('body {{ font-family: sans-serif; padding: 10px; color: #333; }}');
                 doc.write('h2 {{ color: #1e3a8a; margin: 0 0 5px 0; font-size: 20px; }}');
@@ -129,7 +131,113 @@ def render_full_subul_print(df_summary, df_detail, period_str):
                 doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }}');
                 doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 5px 4px; text-align: center; white-space: nowrap; }}');
                 doc.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
-                /* 비고(마지막 열) 가운데 정렬 적용 및 필요시 자연스러운 줄바꿈 유지 */
+                doc.write('.print-table td:last-child {{ white-space: normal; text-align: center; padding: 5px 6px; }}');
+                
+                doc.write('@media print {{');
+                doc.write('  .repeat-header {{ display: table-header-group; }}');
+                doc.write('  thead {{ display: table-header-group; }}');
+                doc.write('  tr {{ page-break-inside: avoid; }}');
+                doc.write('  body {{ padding: 0; }}');
+                doc.write('}}');
+                
+                doc.write('</style></head><body>');
+                
+                doc.write('<table style="width:100%; border-collapse:collapse; border:none;">');
+                doc.write('  <thead class="repeat-header">');
+                doc.write('    <tr>');
+                doc.write('      <th style="border:none; background:transparent; padding:0; text-align:left;">');
+                doc.write('        <h2>📊 야채 원재료 수불 정산 보고서 (거래처 포함)</h2>');
+                doc.write('        <div class="period">정산 기간: {period_str}</div>');
+                doc.write('      </th>');
+                doc.write('    </tr>');
+                doc.write('  </thead>');
+                doc.write('  <tbody>');
+                doc.write('    <tr>');
+                doc.write('      <td style="border:none; padding:0; text-align:left;">');
+                doc.write('        <h3>1. 일자별 개별 수불 상세 내역</h3>');
+                doc.write('        {detail_html}');
+                doc.write('        <h3>2. 품목별 수불 집계 요약표</h3>');
+                doc.write('        {summary_html}');
+                doc.write('        <h3 style="margin-top:20px;">3. 정산 기간 총량 집계 요약</h3>');
+                doc.write('        <table class="metric-table"><tr><td class="metric-card"><div class="metric-title">기준일 이월재고 (정산시작 전일)</div><div class="metric-val">{tot_prev:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 입고량</div><div class="metric-val">{tot_in:,.1f} kg</div></td><td class="metric-card"><div class="metric-title">총 출고/로스 사용량</div><div class="metric-val">{(tot_use + tot_loss):,.1f} kg</div></td><td class="metric-card"><div class="metric-title">정산 기말재고 (정산종료일)</div><div class="metric-val">{tot_day:,.1f} kg</div></td></tr></table>');
+                doc.write('      </td>');
+                doc.write('    </tr>');
+                doc.write('  </tbody>');
+                doc.write('</table>');
+                
+                doc.write('</body></html>');
+                doc.close();
+                pWin.focus();
+                setTimeout(function(){{ pWin.print(); }}, 500);
+            }}
+        </script>
+    </head>
+    <body>
+        <button class="btn" onclick="runPrint()">🖨️ 인쇄 (거래처 포함)</button>
+    </body>
+    </html>
+    """
+    st.components.v1.html(html_content, height=45)
+
+# [버전 2] 거래처 미포함(숨김) 수불부 인쇄
+def render_full_subul_print_no_vendor(df_summary, df_detail, period_str):
+    tot_prev = df_summary['전일재고 (kg)'].sum() if '전일재고 (kg)' in df_summary else 0
+    tot_in = df_summary['당일입고 (kg)'].sum() if '당일입고 (kg)' in df_summary else 0
+    tot_use = df_summary['당일사용 (kg)'].sum() if '당일사용 (kg)' in df_summary else 0
+    tot_loss = df_summary['로스 (kg)'].sum() if '로스 (kg)' in df_summary else 0
+    tot_day = df_summary['당일재고 (kg)'].sum() if '당일재고 (kg)' in df_summary else 0
+    
+    # 거래처 열 제거 처리
+    if df_detail is not None and not df_detail.empty and "거래처" in df_detail.columns:
+        df_detail_clean = df_detail.drop(columns=["거래처"])
+    else:
+        df_detail_clean = df_detail
+
+    summary_html = df_summary.to_html(index=False, classes="print-table").replace("\n", " ").replace("'", "\\'")
+    detail_html = df_detail_clean.to_html(index=False, classes="print-table").replace("\n", " ").replace("'", "\\'") if df_detail_clean is not None and not df_detail_clean.empty else "<p>상세 내역이 없습니다.</p>"
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body {{ font-family: sans-serif; margin: 0; padding: 0; }}
+            .btn {{
+                width: 100%;
+                height: 38px;
+                background-color: #0284c7;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 13px;
+                font-weight: bold;
+                cursor: pointer;
+            }}
+            .btn:hover {{ background-color: #0369a1; }}
+        </style>
+        <script>
+            function runPrint() {{
+                var pWin = window.open('', '_blank', 'width=1050,height=900');
+                if (!pWin) {{
+                    alert('팝업 차단을 해제해 주세요.');
+                    return;
+                }}
+                var doc = pWin.document;
+                doc.open();
+                doc.write('<html><head><title>일자별 상세 수불부 보고서 (거래처 미포함)</title>');
+                doc.write('<style>');
+                doc.write('body {{ font-family: sans-serif; padding: 10px; color: #333; }}');
+                doc.write('h2 {{ color: #1e3a8a; margin: 0 0 5px 0; font-size: 20px; }}');
+                doc.write('h3 {{ margin-top: 15px; margin-bottom: 8px; color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 4px; font-size: 14px; }}');
+                doc.write('.period {{ font-size: 13px; color: #475569; margin-bottom: 10px; font-weight: bold; }}');
+                doc.write('.metric-table {{ width: 100%; margin-top: 15px; border-spacing: 6px; border-collapse: separate; }}');
+                doc.write('.metric-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px; text-align: center; }}');
+                doc.write('.metric-title {{ font-size: 11px; color: #64748b; font-weight: bold; }}');
+                doc.write('.metric-val {{ font-size: 14px; color: #0f172a; font-weight: bold; margin-top: 2px; }}');
+                
+                doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 11px; }}');
+                doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 5px 4px; text-align: center; white-space: nowrap; }}');
+                doc.write('.print-table th {{ background-color: #f1f5f9; font-weight: bold; }}');
                 doc.write('.print-table td:last-child {{ white-space: normal; text-align: center; padding: 5px 6px; }}');
                 
                 doc.write('@media print {{');
@@ -172,7 +280,7 @@ def render_full_subul_print(df_summary, df_detail, period_str):
         </script>
     </head>
     <body>
-        <button class="btn" onclick="runPrint()">🖨️ 일자별 수불 상세 내역 인쇄 / PDF 저장</button>
+        <button class="btn" onclick="runPrint()">🖨️ 인쇄 (거래처 미포함)</button>
     </body>
     </html>
     """
@@ -255,7 +363,6 @@ ITEMS = ["선택 안함"] + RAW_ITEMS
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡", "기타"]
 
-# 출고 거래처별 매칭 완제품 정의
 VENDOR_PRODUCT_MAP = {
     "스윗밸런스": ["브런치빈 믹스 1kg"],
     "쿠팡": ["쿠팡 당근 200(6ea)", "쿠팡 당근 400(8ea)"],
@@ -898,7 +1005,8 @@ with tab7:
                     fmt_detail = {col: "{:.1f}" for col in num_cols_detail}
                     st.dataframe(display_period.style.format(fmt_detail), use_container_width=True)
 
-                b1, b2 = st.columns(2)
+                # 3개의 컬럼으로 분할하여 [엑셀 다운로드] / [거래처 포함 인쇄] / [거래처 미포함 인쇄] 제공
+                b1, b2, b3 = st.columns([1, 1, 1])
                 with b1:
                     excel_buffer = io.BytesIO()
                     with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
@@ -907,7 +1015,7 @@ with tab7:
                             display_period.round(1).to_excel(writer, index=False, sheet_name='일별수불이력')
                     
                     st.download_button(
-                        label="📥 수불부 엑셀 다운로드 (집계표 + 상세 내역)",
+                        label="📥 수불부 엑셀 다운로드",
                         data=excel_buffer.getvalue(),
                         file_name=f"야채원재료_수불부_{s_date}_{e_date}.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -915,6 +1023,8 @@ with tab7:
                     )
                 with b2:
                     render_full_subul_print(subul_df.round(1), display_period.round(1), period_title_str)
+                with b3:
+                    render_full_subul_print_no_vendor(subul_df.round(1), display_period.round(1), period_title_str)
             else:
                 st.info("지정한 조건에 해당하는 수불 내역이 없습니다.")
         else:
