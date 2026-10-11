@@ -726,7 +726,11 @@ with tab5:
 
                     st.write("##### 📋 거래처별 입고 정산 집계표")
                     st.dataframe(
-                        display_vendor_df.style.format({"단가": "{:,.0f}원", "총액": "{:,.0f}원"}),
+                        display_vendor_df.style.format({
+                            "입고 중량 (kg)": "{:,.1f}",
+                            "단가": "{:,.0f}원",
+                            "총액": "{:,.0f}원"
+                        }),
                         use_container_width=True
                     )
 
@@ -734,7 +738,7 @@ with tab5:
                         "기간": filtered_in["일자"],
                         "거래처": filtered_in["거래처"],
                         "품명": filtered_in["원료명"],
-                        "입고 중량 (kg)": filtered_in["수량_num"],
+                        "입고 중량 (kg)": filtered_in["수량_num"].round(1),
                         "단가": filtered_in["단가_num"],
                         "총액": filtered_in["총금액_num"],
                         "비고": filtered_in["비고"]
@@ -742,7 +746,11 @@ with tab5:
 
                     with st.expander("🔍 일자별 개별 입고 상세 내역 보기 (날짜 오름차순)"):
                         st.dataframe(
-                            detail_df.style.format({"단가": "{:,.0f}원", "총액": "{:,.0f}원"}),
+                            detail_df.style.format({
+                                "입고 중량 (kg)": "{:,.1f}",
+                                "단가": "{:,.0f}원",
+                                "총액": "{:,.0f}원"
+                            }),
                             use_container_width=True
                         )
 
@@ -829,18 +837,28 @@ with tab6:
                     })
 
                     st.write("##### 📋 거래처별 출고 집계표")
-                    st.dataframe(display_out_vendor_df, use_container_width=True)
+                    st.dataframe(
+                        display_out_vendor_df.style.format({
+                            "총 출고 중량 (kg)": "{:,.1f}"
+                        }),
+                        use_container_width=True
+                    )
 
                     out_detail_df = pd.DataFrame({
                         "일자": filtered_out["일자"],
                         "거래처": filtered_out["거래처"],
                         "원료명": filtered_out["원료명"],
-                        "출고 중량 (kg)": filtered_out["수량_num"],
+                        "출고 중량 (kg)": filtered_out["수량_num"].round(1),
                         "비고": filtered_out["비고"]
                     }).sort_values(by="일자", ascending=True)
 
                     with st.expander("🔍 일자별 개별 출고 상세 내역 보기 (날짜 오름차순)"):
-                        st.dataframe(out_detail_df, use_container_width=True)
+                        st.dataframe(
+                            out_detail_df.style.format({
+                                "출고 중량 (kg)": "{:,.1f}"
+                            }),
+                            use_container_width=True
+                        )
 
                     ob1, ob2 = st.columns(2)
                     with ob1:
