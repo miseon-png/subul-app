@@ -187,7 +187,6 @@ def render_full_subul_print_no_vendor(df_summary, df_detail, period_str):
     tot_loss = df_summary['로스 (kg)'].sum() if '로스 (kg)' in df_summary else 0
     tot_day = df_summary['당일재고 (kg)'].sum() if '당일재고 (kg)' in df_summary else 0
     
-    # 상세 내역에서 '거래처' 및 '비고' 열 제외 처리
     df_detail_clean = df_detail.copy() if df_detail is not None else None
     if df_detail_clean is not None and not df_detail_clean.empty:
         cols_to_drop = [col for col in ["거래처", "비고"] if col in df_detail_clean.columns]
@@ -286,8 +285,11 @@ def render_full_subul_print_no_vendor(df_summary, df_detail, period_str):
     """
     st.components.v1.html(html_content, height=45)
 
-def render_clean_summary_print(df_summary, period_str):
-    table_html = df_summary.to_html(index=False, classes="print-table").replace('\n', ' ').replace("'", "\\'")
+# [수정됨] 거래처 정산 상세 내역 포함 인쇄 함수
+def render_clean_summary_print(df_summary, df_detail, period_str):
+    summary_html = df_summary.to_html(index=False, classes="print-table").replace('\n', ' ').replace("'", "\\'")
+    detail_html = df_detail.to_html(index=False, classes="print-table").replace('\n', ' ').replace("'", "\\'") if df_detail is not None and not df_detail.empty else "<p>상세 내역이 없습니다.</p>"
+    
     html_content = f"""
     <!DOCTYPE html>
     <html>
@@ -315,10 +317,11 @@ def render_clean_summary_print(df_summary, period_str):
                 }}
                 var doc = pWin.document;
                 doc.open();
-                doc.write('<html><head><title>거래처 정산 집계표</title>');
+                doc.write('<html><head><title>거래처 정산 집계표 및 상세내역</title>');
                 doc.write('<style>');
                 doc.write('body {{ font-family: sans-serif; padding: 20px; }}');
                 doc.write('h2 {{ color: #1e3a8a; margin: 0 0 5px 0; }}');
+                doc.write('h3 {{ margin-top: 15px; margin-bottom: 8px; color: #334155; border-bottom: 2px solid #cbd5e1; padding-bottom: 4px; font-size: 14px; }}');
                 doc.write('.print-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }}');
                 doc.write('.print-table th, .print-table td {{ border: 1px solid #cbd5e1; padding: 6px; text-align: center; white-space: nowrap; }}');
                 doc.write('.print-table th {{ background: #f1f5f9; }}');
@@ -329,14 +332,20 @@ def render_clean_summary_print(df_summary, period_str):
                 doc.write('<table style="width:100%; border-collapse:collapse;">');
                 doc.write('  <thead>');
                 doc.write('    <tr><th style="border:none; background:transparent; text-align:left; padding:0;">');
-                doc.write('      <h2>📋 거래처 정산 집계표</h2>');
+                doc.write('      <h2>📋 거래처 정산 보고서</h2>');
                 doc.write('      <div style="margin-bottom:10px;"><b>정산 기간:</b> {period_str}</div>');
                 doc.write('    </th></tr>');
                 doc.write('  </thead>');
                 doc.write('  <tbody>');
-                doc.write('    <tr><td style="border:none; padding:0;">{table_html}</td></tr>');
+                doc.write('    <tr><td style="border:none; padding:0;">');
+                doc.write('      <h3>1. 거래처 정산 집계표</h3>');
+                doc.write('      {summary_html}');
+                doc.write('      <h3 style="margin-top:20px;">2. 일자별 개별 상세 내역</h3>');
+                doc.write('      {detail_html}');
+                doc.write('    </td></tr>');
                 doc.write('  </tbody>');
                 doc.write('</table>');
+                doc.write('</body></html>');
                 doc.close();
                 pWin.focus();
                 setTimeout(function(){{ pWin.print(); }}, 500);
@@ -344,7 +353,7 @@ def render_clean_summary_print(df_summary, period_str):
         </script>
     </head>
     <body>
-        <button class="btn" onclick="runPrint()">🖨️ 정산 집계표 인쇄 / PDF 저장</button>
+        <button class="btn" onclick="runPrint()">🖨️ 정산 집계 및 상세내역 인쇄 / PDF</button>
     </body>
     </html>
     """
@@ -769,7 +778,8 @@ with tab5:
                             use_container_width=True
                         )
                     with b2:
-                        render_clean_summary_print(display_vendor_df, period_str)
+                        # [수정 반영] 상세 내역 df 추가
+                        render_clean_summary_print(display_vendor_df, detail_df, period_str)
                 else:
                     st.info("선택 조건에 해당하는 입고 내역이 없습니다.")
             else:
@@ -875,7 +885,8 @@ with tab6:
                             use_container_width=True
                         )
                     with ob2:
-                        render_clean_summary_print(display_out_vendor_df, period_out_str)
+                        # [수정 반영] 상세 내역 df 추가
+                        render_clean_summary_print(display_out_vendor_df, out_detail_df, period_out_str)
                 else:
                     st.info("선택 조건에 해당하는 출고 내역이 없습니다.")
             else:
