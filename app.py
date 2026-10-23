@@ -426,13 +426,15 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 # ---------------------------------------------------------
 with tab1:
     st.subheader("📥 원재료 입고 일괄 등록 (반품 시 -중량 입력)")
-    col_date, col_vendor, col_btn = st.columns([1.5, 1.5, 1])
+    
+    # 수정 부분: 버튼이 포함된 컬럼 하단 정렬 (vertical_alignment="bottom")
+    col_date, col_vendor, col_btn = st.columns([1.5, 1.5, 1], vertical_alignment="bottom")
     with col_date:
         record_date = st.date_input("입고일자", value=datetime.today(), key="in_multi_date")
     with col_vendor:
         vendor = st.selectbox("입고 거래처", INBOUND_VENDORS, key="in_multi_vendor")
     with col_btn:
-        st.write(" ")
+        # st.write(" ") 제거
         if st.button("➕ 품목 행 추가", use_container_width=True):
             st.session_state.in_rows += 1
 
@@ -494,7 +496,8 @@ with tab1:
 with tab2:
     st.subheader("📤 원재료 출고(사용) 일괄 등록 (반품 시 -중량 입력)")
     
-    col_date2, col_vendor2, col_prod2, col_btn2 = st.columns([1.2, 1.3, 1.5, 0.8])
+    # 수정 부분: 버튼이 포함된 컬럼 하단 정렬 (vertical_alignment="bottom")
+    col_date2, col_vendor2, col_prod2, col_btn2 = st.columns([1.2, 1.3, 1.5, 0.8], vertical_alignment="bottom")
     with col_date2:
         record_date_out = st.date_input("출고일자", value=datetime.today(), key="out_multi_date")
     with col_vendor2:
@@ -509,7 +512,7 @@ with tab2:
     with col_prod2:
         prod_out = st.selectbox("출고 제품 (선택사항)", available_products, key="out_multi_prod")
     with col_btn2:
-        st.write(" ")
+        # st.write(" ") 제거
         if st.button("➕ 출고 행 추가", use_container_width=True):
             st.session_state.out_rows += 1
 
@@ -778,7 +781,6 @@ with tab5:
                             use_container_width=True
                         )
                     with b2:
-                        # [수정 반영] 상세 내역 df 추가
                         render_clean_summary_print(display_vendor_df, detail_df, period_str)
                 else:
                     st.info("선택 조건에 해당하는 입고 내역이 없습니다.")
@@ -885,7 +887,6 @@ with tab6:
                             use_container_width=True
                         )
                     with ob2:
-                        # [수정 반영] 상세 내역 df 추가
                         render_clean_summary_print(display_out_vendor_df, out_detail_df, period_out_str)
                 else:
                     st.info("선택 조건에 해당하는 출고 내역이 없습니다.")
@@ -902,7 +903,8 @@ with tab6:
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
     
-    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 0.8])
+    # 수정 부분: 버튼이 포함된 컬럼 하단 정렬 (vertical_alignment="bottom")
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([1, 1, 1, 0.8], vertical_alignment="bottom")
     with ctrl1:
         s_date = st.date_input("정산 시작일", value=get_first_day_of_month(), key="subul_sdate")
     with ctrl2:
@@ -910,7 +912,7 @@ with tab7:
     with ctrl3:
         subul_item_filter = st.selectbox("품목 필터", ["전체"] + RAW_ITEMS, key="subul_item_filter")
     with ctrl4:
-        st.write(" ")
+        # st.write(" ") 제거
         if st.button("🔄 수불부 새로고침", use_container_width=True):
             st.cache_data.clear()
 
