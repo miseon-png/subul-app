@@ -209,16 +209,17 @@ RAW_ITEMS = [
 ITEMS = ["선택 안함"] + RAW_ITEMS
 
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
-OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡", "기타"]
+
+# (일반 출고 탭 용) 출고 거래처에서 '스윗밸런스' 제거됨
+OUTBOUND_VENDORS = ["나무숲", "쿠팡", "기타"]
 
 VENDOR_PRODUCT_MAP = {
-    "스윗밸런스": ["브런치빈 믹스 1kg"], 
     "쿠팡": ["쿠팡 당근 200(6ea)", "쿠팡 당근 400(8ea)"],
     "나무숲": ["선택 안함"],
     "기타": ["선택 안함"]
 }
 
-# ❗수정됨: 배합비(레시피)에서 '스윗밸런스' 제거, 오직 당근만 남김
+# 배합비(레시피)에는 쿠팡 당근만 남김
 DEFAULT_RECIPES = {
     "쿠팡 당근 200(6ea)": {
         "당근": 0.181
@@ -405,9 +406,8 @@ with tab3:
     with col_r1:
         recipe_date = st.date_input("출고일자", value=datetime.today(), key="recipe_date")
     with col_r2:
-        # ❗수정됨: 배합비 자동출고 탭에서는 '스윗밸런스'를 제외하고 보여줍니다. (당근라페 출고용)
-        recipe_vendors = [v for v in OUTBOUND_VENDORS if v != "스윗밸런스"]
-        recipe_vendor = st.selectbox("출고 거래처", recipe_vendors, key="recipe_vendor")
+        # ❗수정됨: 배합비 자동출고 탭에서는 오직 '쿠팡'만 선택되도록 고정
+        recipe_vendor = st.selectbox("출고 거래처", ["쿠팡"], key="recipe_vendor")
     with col_r3:
         product_name = st.selectbox("생산/출고 제품 선택", list(DEFAULT_RECIPES.keys()), key="recipe_product")
 
