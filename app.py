@@ -210,7 +210,7 @@ ITEMS = ["선택 안함"] + RAW_ITEMS
 
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
 
-# 출고 거래처 목록에 '스윗밸런스' 추가
+# 출고 거래처 목록에 '스윗밸런스' 포함
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡", "기타"]
 
 VENDOR_PRODUCT_MAP = {
@@ -220,7 +220,7 @@ VENDOR_PRODUCT_MAP = {
     "기타": ["선택 안함"]
 }
 
-# 배합비(레시피)에는 쿠팡 당근만 남김
+# 배합비(레시피)에는 쿠팡 당근 유지
 DEFAULT_RECIPES = {
     "쿠팡 당근 200(6ea)": {
         "당근": 0.181
@@ -471,7 +471,7 @@ with tab3:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 4: 로스 등록
+# TAB 4: 로스 등록 (오류 수정 완료)
 # ---------------------------------------------------------
 with tab4:
     st.subheader("🚮 로스(폐기/손실) 등록")
@@ -481,7 +481,7 @@ with tab4:
             record_date = st.date_input("발생일자", value=datetime.today(), key="loss_date")
             item = st.selectbox("원료명", RAW_ITEMS, key="loss_item")
         with col2:
-            loss_weight = st.number_input("로스 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key=loss_weight)
+            loss_weight = st.number_input("로스 중량 (kg)", min_value=0.0, step=0.5, format="%.1f", key="loss_weight")
             note = st.text_input("사유", placeholder="예: 부패, 훼손 등", key="loss_note")
 
         submitted = st.form_submit_button("로스 저장하기", use_container_width=True)
