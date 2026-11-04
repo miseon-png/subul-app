@@ -209,8 +209,6 @@ RAW_ITEMS = [
 ITEMS = ["선택 안함"] + RAW_ITEMS
 
 INBOUND_VENDORS = ["에상스팜", "승승장구", "한스", "넥스토팜", "구름", "기타"]
-
-# 출고 거래처 목록에 '스윗밸런스' 포함
 OUTBOUND_VENDORS = ["스윗밸런스", "나무숲", "쿠팡", "기타"]
 
 VENDOR_PRODUCT_MAP = {
@@ -220,7 +218,6 @@ VENDOR_PRODUCT_MAP = {
     "기타": ["선택 안함"]
 }
 
-# 배합비(레시피)에는 쿠팡 당근 유지
 DEFAULT_RECIPES = {
     "쿠팡 당근 200(6ea)": {
         "당근": 0.181
@@ -471,7 +468,7 @@ with tab3:
         st.caption("최근 기록 조회 중...")
 
 # ---------------------------------------------------------
-# TAB 4: 로스 등록 (오류 수정 완료)
+# TAB 4: 로스 등록
 # ---------------------------------------------------------
 with tab4:
     st.subheader("🚮 로스(폐기/손실) 등록")
@@ -730,7 +727,7 @@ with tab6:
         st.error(f"거래처별 출고 정산 조회 오류: {e}")
 
 # ---------------------------------------------------------
-# TAB 7: 수불부 (소수점 1자리 형식을 정밀하게 고정하여 표출)
+# TAB 7: 수불부 (양수 우선 계산 및 정렬 반영)
 # ---------------------------------------------------------
 with tab7:
     st.subheader("📊 야채 원재료 수불부 (실시간 재고 자동 정산)")
@@ -759,7 +756,11 @@ with tab7:
             df["원료명_cat"] = df["원료명"].astype(item_order)
             df["구분_cat"] = df["구분"].astype(type_order)
             
-            df = df.sort_values(by=["일자_parsed", "구분_cat", "원료명_cat"], ascending=[True, True, True])
+            # 동일 조건일 때 플러스(+) 입고가 마이너스(-) 반품보다 먼저 계산되도록 수량_num 내림차순 적용
+            df = df.sort_values(
+                by=["일자_parsed", "구분_cat", "원료명_cat", "수량_num"],
+                ascending=[True, True, True, False]
+            )
 
             summary_rows = []
             all_history_rows = []
@@ -855,12 +856,13 @@ with tab7:
                     display_period["원료명_cat"] = display_period["원료명"].astype(item_order)
                     display_period["구분_cat"] = display_period["구분"].astype(type_order)
                     
+                    # 상세 내역 표시 순서도 계산 순서와 동일하게 유지
                     display_period = display_period.sort_values(
                         by=["일자_parsed", "구분_cat", "원료명_cat"], 
                         ascending=[True, True, True]
                     ).drop(columns=["원료명_cat", "구분_cat", "일자_parsed"])
 
-                    st.write("##### 🔍 선택 기간 일자별 상세 수불 내역 (날짜 ➔ 입고 우선 ➔ 품목 지정순)")
+                    st.write("##### 🔍 선택 기간 일자별 상세 수불 내역 (날짜 ➔ 입고(+) 우선 ➔ 품목 지정순)")
                     
                     num_cols_detail = ["전일재고 (kg)", "입고 (kg)", "사용 (kg)", "로스 (kg)", "당일재고 (kg)"]
                     fmt_detail = {col: "{:.1f}" for col in num_cols_detail}
